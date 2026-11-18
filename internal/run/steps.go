@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,6 +13,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/charterhq/charter/internal/driver"
+	"github.com/charterhq/charter/internal/schema"
 )
 
 const (
@@ -252,25 +254,17 @@ func (e *Engine) validate(r runRow) outcome {
 	return outcome{next: Modeling, errText: validationPrefix + problem}
 }
 
-// checkOutput is the minimal stage-1 check: a JSON object with the required keys of the schema.
-func checkOutput(output, schema json.RawMessage) string {
+// checkOutput validates the output against the scenario output schema.
+func checkOutput(output, outputSchema json.RawMessage) string {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(output, &obj); err != nil {
 		return "output is not a JSON object"
 	}
-	if len(schema) == 0 {
+	if len(outputSchema) == 0 {
 		return ""
 	}
-	var s struct {
-		Required []string `json:"required"`
-	}
-	if err := json.Unmarshal(schema, &s); err != nil {
-		return "output schema is not valid JSON"
-	}
-	for _, k := range s.Required {
-		if _, ok := obj[k]; !ok {
-			return "missing required field " + k
-		}
+	if problems := schema.Check(outputSchema, output); len(problems) > 0 {
+		return strings.Join(problems, "; ")
 	}
 	return ""
 }

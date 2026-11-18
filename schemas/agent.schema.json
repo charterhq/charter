@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://charter.dev/schemas/v1/agent.schema.json",
+  "title": "Charter agent card",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "charter.dev/v1"},
+    "kind": {"const": "Agent"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "team", "owner", "version", "status"],
+      "properties": {
+        "name": {"$ref": "#/$defs/name"},
+        "team": {"$ref": "#/$defs/name"},
+        "owner": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$"},
+        "status": {"enum": ["draft", "shadow", "active", "retired"]}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "duties", "not_duties", "persona", "model", "data_classes", "budgets", "memory", "scenarios", "fallback", "review_every_days"],
+      "properties": {
+        "description": {"type": "string", "minLength": 1},
+        "goals": {"$ref": "#/$defs/strings"},
+        "duties": {"$ref": "#/$defs/nonEmptyStrings"},
+        "not_duties": {"$ref": "#/$defs/nonEmptyStrings"},
+        "persona": {"type": "string", "minLength": 1},
+        "persona_includes": {"$ref": "#/$defs/strings"},
+        "model": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["class"],
+          "properties": {
+            "class": {"type": "string", "minLength": 1},
+            "params": {"type": "object"}
+          }
+        },
+        "data_classes": {"type": "array", "minItems": 1, "items": {"enum": ["public", "internal", "confidential", "personal"]}},
+        "identities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["system", "account"],
+            "properties": {"system": {"type": "string"}, "account": {"type": "string"}}
+          }
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ref"],
+            "properties": {"ref": {"type": "string", "minLength": 1}, "functions": {"$ref": "#/$defs/strings"}}
+          }
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ref", "version"],
+            "properties": {"ref": {"type": "string"}, "version": {"type": "string"}}
+          }
+        },
+        "knowledge": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["repo", "path"],
+            "properties": {"repo": {"type": "string"}, "path": {"type": "string"}, "ref": {"type": "string"}}
+          }
+        },
+        "budgets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["timeout", "max_steps", "max_tokens_per_run", "max_runs_per_day", "concurrency"],
+          "properties": {
+            "timeout": {"$ref": "#/$defs/duration"},
+            "max_steps": {"type": "integer", "minimum": 1},
+            "max_tool_calls": {"type": "integer", "minimum": 0},
+            "max_tokens_per_run": {"type": "integer", "minimum": 1},
+            "max_cost_per_run": {"type": "number", "exclusiveMinimum": 0},
+            "max_runs_per_day": {"type": "integer", "minimum": 1},
+            "concurrency": {"type": "integer", "minimum": 1}
+          }
+        },
+        "memory": {"enum": ["none", "thread", "object"]},
+        "scenarios": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {"name": {"$ref": "#/$defs/name"}, "from": {"type": "string"}, "with": {"type": "object"}}
+          }
+        },
+        "fallback": {"type": "string", "minLength": 1},
+        "review_every_days": {"type": "integer", "minimum": 1, "maximum": 365},
+        "exceptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["requirement", "reason", "until", "owner"],
+            "properties": {
+              "requirement": {"type": "string"},
+              "reason": {"type": "string"},
+              "until": {"type": "string", "format": "date"},
+              "owner": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$"},
+    "duration": {"type": "string", "pattern": "^([0-9]+(ms|s|m|h))+$"},
+    "strings": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "nonEmptyStrings": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+  }
+}

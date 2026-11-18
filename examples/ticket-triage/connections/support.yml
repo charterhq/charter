@@ -1,0 +1,11 @@
+apiVersion: charter.dev/v1
+kind: Connection
+metadata:
+  name: support
+  team: support
+  owner: jane.doe
+spec:
+  agent: {name: ticket-triage, versions: "^1"}
+  scenarios: [classify]
+  channels: {suggestions: support-triage}
+  status: shadow

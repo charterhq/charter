@@ -13,11 +13,20 @@ Status: early development, not ready for use.
 | `cmd/agentd` | core service |
 | `cmd/agentctl` | CLI |
 | `internal/run` | run state machine (accept, filter, prepare, model, validate, check, approve, execute, respond, record) |
+| `internal/pkg` | v1 package format: load, JSON Schema and semantic checks, compile for the engine |
 | `internal/registry` | agents, immutable package versions, kill switch |
 | `internal/driver` | driver interfaces |
 | `drivers/` | driver implementations; `stub` for tests |
+| `schemas/` | JSON Schemas of the v1 package format |
+| `examples/` | example agent packages |
 | `migrations/` | PostgreSQL schema |
 | `deploy/` | compose and systemd |
+
+## Validate a package
+
+```sh
+go run ./cmd/agentctl validate examples/ticket-triage
+```
 
 ## Development
 

@@ -8,6 +8,9 @@ require (
 	github.com/pressly/goose/v3 v3.30.1
 	github.com/riverqueue/river v0.51.2
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.51.2
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+	go.yaml.in/yaml/v3 v3.0.6
+	golang.org/x/text v0.44.0
 )
 
 require (
@@ -25,5 +28,4 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/sync v0.25.0 // indirect
-	golang.org/x/text v0.44.0 // indirect
 )

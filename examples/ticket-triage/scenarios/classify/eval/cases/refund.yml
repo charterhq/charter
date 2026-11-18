@@ -1,0 +1,8 @@
+id: refund
+input:
+  ticket: {id: "T-1", subject: "Refund", body: "I was charged twice, please refund."}
+expected:
+  category: billing
+  queue: billing
+checks:
+  - category equals expected

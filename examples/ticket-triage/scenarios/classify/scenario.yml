@@ -1,0 +1,17 @@
+apiVersion: charter.dev/v1
+kind: Scenario
+metadata:
+  name: classify
+  description: classifies a ticket and returns a category and a queue
+spec:
+  triggers:
+    - {type: event, source: tickets}
+  level: 1
+  input_schema: input.schema.json
+  output_schema: output.schema.json
+  instructions: instructions.md
+  autonomy: advise
+  idempotency: {key: [ticket.id, scenario, input.hash], on_repeat: skip}
+  on_failure: owner
+  eval: eval/
+  feedback: {unit: response}

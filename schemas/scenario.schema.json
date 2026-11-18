@@ -1,0 +1,259 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://charter.dev/schemas/v1/scenario.schema.json",
+  "title": "Charter scenario",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "charter.dev/v1"
+    },
+    "kind": {
+      "const": "Scenario"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "description"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,62}$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "triggers",
+        "level",
+        "input_schema",
+        "output_schema",
+        "instructions",
+        "autonomy",
+        "idempotency",
+        "on_failure",
+        "eval"
+      ],
+      "properties": {
+        "triggers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "source"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "event",
+                  "schedule",
+                  "message",
+                  "call",
+                  "input_change"
+                ]
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1
+              },
+              "filter": {
+                "type": "string"
+              },
+              "schedule": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "level": {
+          "enum": [
+            1,
+            2,
+            3
+          ]
+        },
+        "input_schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "output_schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inputs_from": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "agent",
+              "scenario",
+              "field"
+            ],
+            "properties": {
+              "agent": {
+                "type": "string"
+              },
+              "scenario": {
+                "type": "string"
+              },
+              "field": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "instructions": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "autonomy": {
+          "enum": [
+            "advise",
+            "act"
+          ]
+        },
+        "approval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "required"
+          ],
+          "properties": {
+            "required": {
+              "type": "boolean"
+            },
+            "approvers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "timeout": {
+              "type": "string",
+              "pattern": "^([0-9]+(ms|s|m|h))+$"
+            },
+            "on_timeout": {
+              "enum": [
+                "cancel",
+                "fallback"
+              ]
+            },
+            "distinct_approver": {
+              "type": "boolean"
+            }
+          }
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "idempotency": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "key",
+            "on_repeat"
+          ],
+          "properties": {
+            "key": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            },
+            "on_repeat": {
+              "enum": [
+                "skip",
+                "update"
+              ]
+            }
+          }
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "system",
+              "on_close"
+            ],
+            "properties": {
+              "system": {
+                "type": "string"
+              },
+              "on_close": {
+                "enum": [
+                  "keep",
+                  "close",
+                  "archive"
+                ]
+              }
+            }
+          }
+        },
+        "on_failure": {
+          "enum": [
+            "requester",
+            "owner"
+          ]
+        },
+        "eval": {
+          "type": "string",
+          "minLength": 1
+        },
+        "feedback": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "unit"
+          ],
+          "properties": {
+            "unit": {
+              "enum": [
+                "response",
+                "item"
+              ]
+            },
+            "items_path": {
+              "type": "string"
+            }
+          }
+        },
+        "params": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}
