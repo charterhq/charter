@@ -16,7 +16,14 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U charter" --health-interval 2s --health-retries 30
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.8
+        env:
+          CLICKHOUSE_USER: charter
+          CLICKHOUSE_PASSWORD: charter
+        ports: ["8123:8123"]
     env:
+      CHARTER_TEST_CLICKHOUSE_URL: http://localhost:8123
       CHARTER_TEST_DATABASE_URL: postgres://charter:charter@localhost:5432/charter?sslmode=disable
     steps:
       - uses: actions/checkout@v4

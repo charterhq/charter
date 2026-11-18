@@ -8,6 +8,8 @@ package run
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/charterhq/charter/internal/driver"
 )
 
 // State is a step of the run state machine.
@@ -40,14 +42,16 @@ const (
 
 // Envelope is the launch envelope (STD-0006, section 4).
 type Envelope struct {
-	DeliveryID string          `json:"delivery_id"`
-	Trigger    Trigger         `json:"trigger"`
-	Connection string          `json:"connection"`
-	Object     Object          `json:"object"`
-	Initiator  Initiator       `json:"initiator"`
-	ReceivedAt time.Time       `json:"received_at"`
-	Deadline   *time.Time      `json:"deadline,omitempty"`
-	Payload    json.RawMessage `json:"payload"`
+	DeliveryID string     `json:"delivery_id"`
+	Trigger    Trigger    `json:"trigger"`
+	Connection string     `json:"connection"`
+	Object     Object     `json:"object"`
+	Initiator  Initiator  `json:"initiator"`
+	ReceivedAt time.Time  `json:"received_at"`
+	Deadline   *time.Time `json:"deadline,omitempty"`
+	// Reply is where the answer goes when the launch has a place to answer in (a thread, a chat).
+	Reply   *driver.Target  `json:"reply,omitempty"`
+	Payload json.RawMessage `json:"payload"`
 }
 
 type Trigger struct {

@@ -86,6 +86,13 @@ func (e *Engine) load(ctx context.Context, id uuid.UUID) (runRow, error) {
 	return r, nil
 }
 
+func (r runRow) target() driver.Target {
+	if r.Env.Reply != nil {
+		return *r.Env.Reply
+	}
+	return driver.Target{}
+}
+
 // outcome of a step: where the run goes next and what to write with the transition.
 type outcome struct {
 	next    State
@@ -177,7 +184,8 @@ func (e *Engine) step(ctx context.Context, r runRow) (outcome, error) {
 		return e.execute(ctx, r)
 	case Responding:
 		if _, err := e.drv.Channel.Post(ctx, driver.Message{
-			RunID: r.ID.String(), Agent: r.Agent, Connection: r.Connection, ObjectKey: r.ObjectKey, Data: r.Output,
+			RunID: r.ID.String(), Agent: r.Agent, Connection: r.Connection, ObjectKey: r.ObjectKey,
+			Target: r.target(), Data: r.Output,
 		}); err != nil {
 			return outcome{}, err
 		}
@@ -317,8 +325,9 @@ func (e *Engine) approve(ctx context.Context, r runRow) (outcome, error) {
 		return outcome{}, err
 	}
 	if _, err := e.drv.Channel.AskApproval(ctx, driver.ApprovalRequest{
-		Message: driver.Message{RunID: r.ID.String(), Agent: r.Agent, Connection: r.Connection, ObjectKey: r.ObjectKey},
-		WaitID:  waitID.String(), DraftID: draftID.String(), Fingerprint: fp, Action: r.Output, Deadline: deadline,
+		Message: driver.Message{RunID: r.ID.String(), Agent: r.Agent, Connection: r.Connection, ObjectKey: r.ObjectKey,
+			Target: r.target()},
+		WaitID: waitID.String(), DraftID: draftID.String(), Fingerprint: fp, Action: r.Output, Deadline: deadline,
 	}); err != nil {
 		return outcome{}, err
 	}

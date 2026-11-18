@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/charterhq/charter/drivers/stub"
+	"github.com/charterhq/charter/internal/config"
 	"github.com/charterhq/charter/internal/db"
 	"github.com/charterhq/charter/internal/run"
 )
@@ -28,7 +28,7 @@ func runMain(log *slog.Logger, args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: agentd migrate | serve")
 	}
-	url := os.Getenv("CHARTER_DATABASE_URL")
+	url := config.Env("CHARTER_DATABASE_URL")
 	if url == "" {
 		return errors.New("CHARTER_DATABASE_URL is not set")
 	}
@@ -48,8 +48,15 @@ func runMain(log *slog.Logger, args []string) error {
 		if err := db.Migrate(ctx, pool); err != nil {
 			return err
 		}
-		// Stage 1 skeleton: stub drivers until the real ones land.
-		drv, _, _, _ := stub.Set(&stub.Model{})
+		drv, journal, err := config.Drivers(log)
+		if err != nil {
+			return err
+		}
+		if journal != nil {
+			if err := journal.EnsureSchema(ctx); err != nil {
+				return err
+			}
+		}
 		eng, err := run.New(pool, drv, run.Config{Logger: log})
 		if err != nil {
 			return err

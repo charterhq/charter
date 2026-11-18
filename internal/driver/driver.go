@@ -55,12 +55,20 @@ type Tools interface {
 	Call(ctx context.Context, agent, tool string, args json.RawMessage) (json.RawMessage, error)
 }
 
+// Target says where a message goes: a channel and, if any, a thread in it.
+type Target struct {
+	System  string `json:"system,omitempty"`
+	Channel string `json:"channel,omitempty"`
+	Thread  string `json:"thread,omitempty"`
+}
+
 // Message is what an agent says to people.
 type Message struct {
 	RunID      string
 	Agent      string
 	Connection string
 	ObjectKey  string
+	Target     Target
 	Text       string
 	Data       json.RawMessage
 }

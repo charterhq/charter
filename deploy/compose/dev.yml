@@ -1,6 +1,7 @@
 # Local PostgreSQL for development and tests:
 #   docker compose -f deploy/compose/dev.yml up -d
 #   export CHARTER_DATABASE_URL=postgres://charter:charter@localhost:55432/charter?sslmode=disable
+#   export CHARTER_TEST_CLICKHOUSE_URL=http://localhost:58123
 services:
   postgres:
     image: postgres:17
@@ -14,3 +15,14 @@ services:
       test: ["CMD-SHELL", "pg_isready -U charter"]
       interval: 2s
       retries: 30
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    environment:
+      CLICKHOUSE_USER: charter
+      CLICKHOUSE_PASSWORD: charter
+    ports:
+      - "58123:8123"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping || exit 1"]
+      interval: 2s
+      retries: 60
