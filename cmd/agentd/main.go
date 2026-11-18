@@ -82,7 +82,8 @@ func runMain(log *slog.Logger, args []string) error {
 		if err != nil {
 			return err
 		}
-		if journal != nil {
+		// Where the platform owns the journal schema (migrations elsewhere), set CHARTER_CH_ENSURE_SCHEMA=false.
+		if journal != nil && config.Env("CHARTER_CH_ENSURE_SCHEMA") != "false" {
 			if err := journal.EnsureSchema(ctx); err != nil {
 				return err
 			}
