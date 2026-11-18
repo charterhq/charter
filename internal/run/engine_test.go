@@ -4,56 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"math/rand/v2"
-	"net/url"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/charterhq/charter/drivers/stub"
-	"github.com/charterhq/charter/internal/db"
 	"github.com/charterhq/charter/internal/registry"
 	"github.com/charterhq/charter/internal/run"
+	"github.com/charterhq/charter/internal/testdb"
 )
 
-// newDB creates an isolated database per test. Tests skip without CHARTER_TEST_DATABASE_URL.
-func newDB(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	base := os.Getenv("CHARTER_TEST_DATABASE_URL")
-	if base == "" {
-		t.Skip("CHARTER_TEST_DATABASE_URL is not set")
-	}
-	ctx := context.Background()
-	admin, err := db.Open(ctx, base)
-	if err != nil {
-		t.Fatal(err)
-	}
-	name := fmt.Sprintf("charter_test_%d", rand.Uint64())
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatal(err)
-	}
-	u, err := url.Parse(base)
-	if err != nil {
-		t.Fatal(err)
-	}
-	u.Path = "/" + name
-	pool, err := db.Open(ctx, u.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		pool.Close()
-		_, _ = admin.Exec(context.Background(), "DROP DATABASE "+name+" WITH (FORCE)")
-		admin.Close()
-	})
-	if err := db.Migrate(ctx, pool); err != nil {
-		t.Fatal(err)
-	}
-	return pool
-}
+func newDB(t *testing.T) *pgxpool.Pool { return testdb.New(t) }
 
 func testConfig() run.Config {
 	return run.Config{FetchPollInterval: 50 * time.Millisecond, FetchCooldown: 10 * time.Millisecond, ShipInterval: 200 * time.Millisecond}

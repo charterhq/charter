@@ -6,13 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/charterhq/charter/internal/api"
 	"github.com/charterhq/charter/internal/config"
 	"github.com/charterhq/charter/internal/db"
+	"github.com/charterhq/charter/internal/pkg"
+	"github.com/charterhq/charter/internal/registry"
 	"github.com/charterhq/charter/internal/run"
 )
 
@@ -26,7 +30,7 @@ func main() {
 
 func runMain(log *slog.Logger, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: agentd migrate | serve")
+		return errors.New("usage: agentd migrate | serve | apply <package-dir> [git-sha]")
 	}
 	url := config.Env("CHARTER_DATABASE_URL")
 	if url == "" {
@@ -44,6 +48,32 @@ func runMain(log *slog.Logger, args []string) error {
 	switch args[0] {
 	case "migrate":
 		return db.Migrate(ctx, pool)
+	case "apply":
+		if len(args) < 2 {
+			return errors.New("usage: agentd apply <package-dir> [git-sha]")
+		}
+		sha := "local"
+		if len(args) > 2 {
+			sha = args[2]
+		}
+		if err := db.Migrate(ctx, pool); err != nil {
+			return err
+		}
+		p, problems := pkg.Load(os.DirFS(args[1]))
+		if problems != nil {
+			return fmt.Errorf("package has problems:\n%w", problems)
+		}
+		stored, err := pkg.Compile(p)
+		if err != nil {
+			return err
+		}
+		m := p.Agent.Metadata
+		id, err := registry.Apply(ctx, pool, registry.Agent{Name: m.Name, Team: m.Team, Owner: m.Owner}, m.Version, sha, stored)
+		if err != nil {
+			return err
+		}
+		log.Info("package applied", "agent", m.Name, "version", m.Version, "version_id", id)
+		return nil
 	case "serve":
 		if err := db.Migrate(ctx, pool); err != nil {
 			return err
@@ -64,10 +94,31 @@ func runMain(log *slog.Logger, args []string) error {
 		if err := eng.Start(ctx); err != nil {
 			return err
 		}
-		log.Info("agentd started")
-		<-ctx.Done()
+		tokens, err := config.Tokens()
+		if err != nil {
+			return err
+		}
+		listen := config.Env("CHARTER_LISTEN")
+		if listen == "" {
+			listen = ":8080"
+		}
+		srv := &http.Server{
+			Addr: listen,
+			Handler: (&api.Server{Pool: pool, Engine: eng, Tokens: tokens,
+				ApprovalSecret: []byte(config.Env("CHARTER_APPROVAL_SECRET")), Log: log}).Handler(),
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		errc := make(chan error, 1)
+		go func() { errc <- srv.ListenAndServe() }()
+		log.Info("agentd started", "listen", listen)
+		select {
+		case <-ctx.Done():
+		case err := <-errc:
+			return err
+		}
 		shutdown, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+		_ = srv.Shutdown(shutdown)
 		return eng.Stop(shutdown)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])

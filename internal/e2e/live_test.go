@@ -4,24 +4,19 @@ package e2e
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"math/rand/v2"
-	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/charterhq/charter/drivers/bifrost"
 	"github.com/charterhq/charter/drivers/clickhouse"
 	"github.com/charterhq/charter/drivers/stub"
-	"github.com/charterhq/charter/internal/db"
 	"github.com/charterhq/charter/internal/driver"
 	"github.com/charterhq/charter/internal/pkg"
 	"github.com/charterhq/charter/internal/registry"
 	"github.com/charterhq/charter/internal/run"
+	"github.com/charterhq/charter/internal/testdb"
 )
 
 // TestLivePackage runs one scenario of a real package on a real input through the real model gateway
@@ -38,7 +33,7 @@ func TestLivePackage(t *testing.T) {
 		}
 	}
 	ctx := context.Background()
-	pool := isolatedDB(t, os.Getenv("CHARTER_TEST_DATABASE_URL"))
+	pool := testdb.New(t)
 
 	p, problems := pkg.Load(os.DirFS(os.Getenv("CHARTER_LIVE_PACKAGE")))
 	if problems != nil {
@@ -118,32 +113,4 @@ func TestLivePackage(t *testing.T) {
 		t.Fatalf("posts %d", ch.PostCount())
 	}
 	time.Sleep(2 * time.Second) // journal shipping interval
-}
-
-func isolatedDB(t *testing.T, base string) *pgxpool.Pool {
-	t.Helper()
-	ctx := context.Background()
-	admin, err := db.Open(ctx, base)
-	if err != nil {
-		t.Fatal(err)
-	}
-	name := fmt.Sprintf("charter_e2e_%d", rand.Uint64())
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatal(err)
-	}
-	u, _ := url.Parse(base)
-	u.Path = "/" + name
-	pool, err := db.Open(ctx, u.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		pool.Close()
-		_, _ = admin.Exec(context.Background(), "DROP DATABASE "+name+" WITH (FORCE)")
-		admin.Close()
-	})
-	if err := db.Migrate(ctx, pool); err != nil {
-		t.Fatal(err)
-	}
-	return pool
 }

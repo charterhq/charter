@@ -34,6 +34,7 @@ func TestPackageToRun(t *testing.T) {
 	eng, _, ch, _ := startEngine(t, pool, model)
 	env := envelope("t-1", "T-1")
 	env.Trigger.Source = "tickets"
+	env.Payload = []byte(`{"ticket":{"id":"T-1","subject":"Refund","body":"charged twice"}}`)
 	id, _, err := eng.Accept(context.Background(), "ticket-triage", "classify", env)
 	if err != nil {
 		t.Fatal(err)

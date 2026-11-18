@@ -75,7 +75,9 @@ type Scenario struct {
 	Name         string          `json:"name"`
 	Level        int             `json:"level"`
 	ModelClass   string          `json:"model_class"`
+	ModelParams  map[string]any  `json:"model_params,omitempty"`
 	Instructions string          `json:"instructions"`
+	InputSchema  json.RawMessage `json:"input_schema,omitempty"`
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 	Tools        []string        `json:"tools,omitempty"`
 	MaxSteps     int             `json:"max_steps,omitempty"`

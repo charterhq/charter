@@ -100,8 +100,19 @@ func (m *Model) Run(ctx context.Context, req driver.StepRequest) (driver.StepRes
 		"messages":        msgs,
 		"response_format": map[string]string{"type": "json_object"},
 	}
+	// Platform defaults for the class first, then the agent's own parameters from its package.
 	for k, v := range m.cfg.Params[req.ModelClass] {
 		body[k] = v
+	}
+	for k, v := range req.Params {
+		switch k {
+		case "temperature", "top_p", "seed":
+			body[k] = v
+		case "max_output_tokens", "max_tokens":
+			body["max_tokens"] = v
+		case "reasoning":
+			body["reasoning_effort"] = v
+		}
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {

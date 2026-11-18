@@ -1,0 +1,42 @@
+# Charter core with its PostgreSQL. Secrets come from files in ./secrets (mode 0600),
+# settings from charter.env next to this file.
+#   docker compose -f charter.yml up -d
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: charter
+      POSTGRES_DB: charter
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./secrets/pg_password:/run/secrets/pg_password:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U charter"]
+      interval: 5s
+      retries: 30
+  agentd:
+    image: ${CHARTER_IMAGE:-ghcr.io/charterhq/charter:latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: charter.env
+    environment:
+      CHARTER_DATABASE_URL_FILE: /run/secrets/database_url
+      CHARTER_BIFROST_KEY_FILE: /run/secrets/bifrost_key
+      CHARTER_MM_TOKEN_FILE: /run/secrets/mm_token
+      CHARTER_CH_PASSWORD_FILE: /run/secrets/ch_password
+      CHARTER_APPROVAL_SECRET_FILE: /run/secrets/approval_secret
+      CHARTER_API_TOKENS_FILE: /run/secrets/api_tokens
+    volumes:
+      - ./secrets:/run/secrets:ro
+      - ./packages:/packages:ro
+    ports:
+      - "127.0.0.1:18080:8080"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/agentctl", "version"]
+      interval: 30s
+volumes:
+  pgdata:

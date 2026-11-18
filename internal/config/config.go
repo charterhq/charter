@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/charterhq/charter/drivers/bifrost"
 	"github.com/charterhq/charter/drivers/clickhouse"
@@ -33,6 +34,19 @@ func trimNewline(b []byte) []byte {
 		b = b[:len(b)-1]
 	}
 	return b
+}
+
+// Tokens reads API tokens from CHARTER_API_TOKENS: "name:token" pairs separated by commas or newlines.
+func Tokens() (map[string]string, error) {
+	out := map[string]string{}
+	for _, pair := range strings.FieldsFunc(Env("CHARTER_API_TOKENS"), func(r rune) bool { return r == ',' || r == '\n' }) {
+		name, tok, ok := strings.Cut(strings.TrimSpace(pair), ":")
+		if !ok || name == "" || len(tok) < 16 {
+			return nil, fmt.Errorf("CHARTER_API_TOKENS: each entry is name:token, token at least 16 characters")
+		}
+		out[tok] = name
+	}
+	return out, nil
 }
 
 // Drivers builds the driver set. A driver whose settings are missing falls back to a stub, with a warning.

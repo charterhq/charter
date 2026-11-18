@@ -12,10 +12,12 @@ import (
 
 // StepRequest is one model step of a run.
 type StepRequest struct {
-	RunID        string
-	Agent        string
-	Scenario     string
-	ModelClass   string
+	RunID      string
+	Agent      string
+	Scenario   string
+	ModelClass string
+	// Params are the agent's model parameters from the package (temperature, reasoning, output limit).
+	Params       map[string]any
 	Instructions string
 	Input        json.RawMessage
 	OutputSchema json.RawMessage

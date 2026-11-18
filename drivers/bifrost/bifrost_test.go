@@ -32,7 +32,8 @@ func TestRunAgainstFakeGateway(t *testing.T) {
 		Params: map[string]map[string]any{"fast": {"max_tokens": 100}}})
 	res, err := m.Run(context.Background(), driver.StepRequest{
 		RunID: "r1", Agent: "a", Scenario: "s", ModelClass: "fast", Instructions: "do it",
-		Input: json.RawMessage(`{"x":1}`), OutputSchema: json.RawMessage(`{"type":"object"}`),
+		Params: map[string]any{"reasoning": "low", "max_output_tokens": 500, "response_format": "json"},
+		Input:  json.RawMessage(`{"x":1}`), OutputSchema: json.RawMessage(`{"type":"object"}`),
 		Feedback: []string{"missing verdict"},
 	})
 	if err != nil {
@@ -46,7 +47,7 @@ func TestRunAgainstFakeGateway(t *testing.T) {
 		u.Model != "m-real" || u.Provider != "sail" || u.FinishReason != "stop" {
 		t.Fatalf("usage %+v", u)
 	}
-	if got["model"] != "alias-fast" || got["max_tokens"] != float64(100) {
+	if got["model"] != "alias-fast" || got["max_tokens"] != float64(500) || got["reasoning_effort"] != "low" {
 		t.Fatalf("request %v", got)
 	}
 	msgs := got["messages"].([]any)

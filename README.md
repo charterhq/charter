@@ -15,6 +15,7 @@ Status: early development, not ready for use.
 | `internal/run` | run state machine (accept, filter, prepare, model, validate, check, approve, execute, respond, record) |
 | `internal/pkg` | v1 package format: load, JSON Schema and semantic checks, compile for the engine |
 | `internal/registry` | agents, immutable package versions, kill switch |
+| `internal/api` | HTTP API `/v1`: launches (alertmanager, raw), approvals, kill switch, runs, agents |
 | `internal/driver` | driver interfaces |
 | `drivers/` | driver implementations; `stub` for tests |
 | `schemas/` | JSON Schemas of the v1 package format |
@@ -27,6 +28,16 @@ Status: early development, not ready for use.
 ```sh
 go run ./cmd/agentctl validate examples/ticket-triage
 ```
+
+## Run
+
+```sh
+agentd apply examples/ticket-triage   # load a package into the registry
+agentd serve                          # API on CHARTER_LISTEN, drivers from CHARTER_* variables
+agentctl runs ticket-triage           # CHARTER_URL, CHARTER_TOKEN
+```
+
+See `deploy/compose/charter.env.example` for driver settings.
 
 ## Development
 

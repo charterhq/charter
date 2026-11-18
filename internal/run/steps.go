@@ -161,6 +161,12 @@ func (e *Engine) step(ctx context.Context, r runRow) (outcome, error) {
 	case Filtering:
 		return e.filter(ctx, r)
 	case Preparing:
+		if len(r.Scn.InputSchema) > 0 {
+			if problems := schema.Check(r.Scn.InputSchema, r.Env.Payload); len(problems) > 0 {
+				return outcome{next: Recording, status: StatusFailed,
+					errText: "input does not match input_schema: " + strings.Join(problems, "; ")}, nil
+			}
+		}
 		return outcome{next: Modeling, apply: func(ctx context.Context, tx pgx.Tx) error {
 			_, err := tx.Exec(ctx, `UPDATE runs SET input = $2 WHERE id = $1`, r.ID, []byte(r.Env.Payload))
 			return err
@@ -225,7 +231,7 @@ func (e *Engine) filter(ctx context.Context, r runRow) (outcome, error) {
 
 func (e *Engine) model(ctx context.Context, r runRow) (outcome, error) {
 	req := driver.StepRequest{
-		RunID: r.ID.String(), Agent: r.Agent, Scenario: r.Scenario, ModelClass: r.Scn.ModelClass,
+		RunID: r.ID.String(), Agent: r.Agent, Scenario: r.Scenario, ModelClass: r.Scn.ModelClass, Params: r.Scn.ModelParams,
 		Instructions: r.Scn.Instructions, Input: r.Input, OutputSchema: r.Scn.OutputSchema,
 		Tools: r.Scn.Tools, MaxSteps: r.Scn.MaxSteps,
 	}
@@ -250,6 +256,9 @@ func (e *Engine) model(ctx context.Context, r runRow) (outcome, error) {
 // validate checks the output against the scenario schema; one retry with feedback (STD-0006, step 5).
 func (e *Engine) validate(r runRow) outcome {
 	problem := checkOutput(r.Output, r.Scn.OutputSchema)
+	if problem != "" && r.Usage.FinishReason == "length" {
+		problem += fmt.Sprintf(" (model stopped at the output limit; reasoning tokens so far: %d)", r.Usage.ReasoningTokens)
+	}
 	if problem == "" {
 		return outcome{next: Checking, apply: func(ctx context.Context, tx pgx.Tx) error {
 			_, err := tx.Exec(ctx, `UPDATE runs SET error = '' WHERE id = $1`, r.ID)
