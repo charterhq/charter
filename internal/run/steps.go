@@ -1,0 +1,509 @@
+package run
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/riverqueue/river"
+
+	"github.com/charterhq/charter/internal/driver"
+)
+
+const (
+	stepMaxAttempts        = 5
+	defaultApprovalTimeout = 24 * time.Hour
+	validationPrefix       = "validation: "
+)
+
+type stepArgs struct {
+	RunID string `json:"run_id"`
+}
+
+func (stepArgs) Kind() string { return "charter_run_step" }
+
+func (stepArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: stepMaxAttempts} }
+
+type deadlineArgs struct {
+	WaitID string `json:"wait_id"`
+}
+
+func (deadlineArgs) Kind() string { return "charter_wait_deadline" }
+
+type shipArgs struct{}
+
+func (shipArgs) Kind() string { return "charter_journal_ship" }
+
+// runRow is a run with its scenario, as a step sees it.
+type runRow struct {
+	ID         uuid.UUID
+	Agent      string
+	Version    string
+	Scenario   string
+	Connection string
+	State      State
+	Status     string
+	Env        Envelope
+	ObjectKey  string
+	IdemKey    string
+	Input      json.RawMessage
+	Output     json.RawMessage
+	Usage      driver.Usage
+	Error      string
+	ReceivedAt time.Time
+	StartedAt  *time.Time
+	Scn        Scenario
+}
+
+func (e *Engine) load(ctx context.Context, id uuid.UUID) (runRow, error) {
+	var r runRow
+	var env, scn, usage []byte
+	err := e.pool.QueryRow(ctx, `
+		SELECT r.id, r.agent, v.version, r.scenario, r.connection, r.state, r.status, r.envelope,
+		       r.object_key, r.idempotency_key, r.input, r.output, r.usage, r.error,
+		       r.received_at, r.started_at, v.package -> 'scenarios' -> r.scenario
+		FROM runs r JOIN agent_versions v ON v.id = r.agent_version_id
+		WHERE r.id = $1`, id).Scan(&r.ID, &r.Agent, &r.Version, &r.Scenario, &r.Connection, &r.State, &r.Status,
+		&env, &r.ObjectKey, &r.IdemKey, &r.Input, &r.Output, &usage, &r.Error, &r.ReceivedAt, &r.StartedAt, &scn)
+	if err != nil {
+		return r, err
+	}
+	if err := json.Unmarshal(env, &r.Env); err != nil {
+		return r, fmt.Errorf("decode envelope: %w", err)
+	}
+	if err := json.Unmarshal(usage, &r.Usage); err != nil {
+		return r, fmt.Errorf("decode usage: %w", err)
+	}
+	if err := json.Unmarshal(scn, &r.Scn); err != nil {
+		return r, fmt.Errorf("decode scenario: %w", err)
+	}
+	return r, nil
+}
+
+// outcome of a step: where the run goes next and what to write with the transition.
+type outcome struct {
+	next    State
+	status  string
+	errText string
+	apply   func(ctx context.Context, tx pgx.Tx) error
+	stay    bool // the step parked the run itself (approval wait)
+}
+
+type stepWorker struct {
+	river.WorkerDefaults[stepArgs]
+	e *Engine
+}
+
+func (w *stepWorker) Work(ctx context.Context, job *river.Job[stepArgs]) error {
+	e := w.e
+	id, err := uuid.Parse(job.Args.RunID)
+	if err != nil {
+		return river.JobCancel(err)
+	}
+	r, err := e.load(ctx, id)
+	if err != nil {
+		return err
+	}
+	if r.State == Done {
+		return nil
+	}
+	started := e.now()
+	out, stepErr := e.step(ctx, r)
+	if stepErr != nil {
+		if job.Attempt < job.MaxAttempts || r.State == Recording {
+			return stepErr
+		}
+		// Out of attempts: the run fails and still reaches the journal.
+		out = outcome{next: Recording, status: StatusFailed, errText: fmt.Sprintf("%s: %v", r.State, stepErr)}
+	}
+	if out.stay {
+		return nil
+	}
+	tx, err := e.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if out.apply != nil {
+		if err := out.apply(ctx, tx); err != nil {
+			return err
+		}
+	}
+	if err := e.transition(ctx, tx, r.ID, r.State, out.next, out.status, out.errText, started, job.Attempt); err != nil {
+		if errors.Is(err, errStale) {
+			return nil
+		}
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (e *Engine) step(ctx context.Context, r runRow) (outcome, error) {
+	switch r.State {
+	case Accepted:
+		return outcome{next: Filtering, apply: func(ctx context.Context, tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `UPDATE runs SET started_at = coalesce(started_at, now()) WHERE id = $1`, r.ID)
+			return err
+		}}, nil
+	case Filtering:
+		return e.filter(ctx, r)
+	case Preparing:
+		return outcome{next: Modeling, apply: func(ctx context.Context, tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `UPDATE runs SET input = $2 WHERE id = $1`, r.ID, []byte(r.Env.Payload))
+			return err
+		}}, nil
+	case Modeling:
+		return e.model(ctx, r)
+	case Validating:
+		return e.validate(r), nil
+	case Checking:
+		switch {
+		case r.Scn.Approval != nil:
+			return outcome{next: Approving}, nil
+		case r.Scn.Autonomy == "act" && r.Scn.Action != "":
+			return outcome{next: Executing}, nil
+		default:
+			return outcome{next: Responding}, nil
+		}
+	case Approving:
+		return e.approve(ctx, r)
+	case Executing:
+		return e.execute(ctx, r)
+	case Responding:
+		if _, err := e.drv.Channel.Post(ctx, driver.Message{
+			RunID: r.ID.String(), Agent: r.Agent, Connection: r.Connection, ObjectKey: r.ObjectKey, Data: r.Output,
+		}); err != nil {
+			return outcome{}, err
+		}
+		return outcome{next: Recording}, nil
+	case Recording:
+		return e.record(r)
+	}
+	return outcome{}, fmt.Errorf("unknown state %q", r.State)
+}
+
+func (e *Engine) filter(ctx context.Context, r runRow) (outcome, error) {
+	var off string
+	err := e.pool.QueryRow(ctx, `
+		SELECT state FROM switches
+		WHERE agent = $1 AND connection IN ('', $2) AND state <> 'on' LIMIT 1`, r.Agent, r.Connection).Scan(&off)
+	if err == nil {
+		return outcome{next: Recording, status: StatusSuspended, errText: "agent switched off: " + off}, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return outcome{}, err
+	}
+	if r.IdemKey != "" {
+		if _, err := e.pool.Exec(ctx, `INSERT INTO idempotency (key, run_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+			r.IdemKey, r.ID); err != nil {
+			return outcome{}, err
+		}
+		var owner uuid.UUID
+		if err := e.pool.QueryRow(ctx, `SELECT run_id FROM idempotency WHERE key = $1`, r.IdemKey).Scan(&owner); err != nil {
+			return outcome{}, err
+		}
+		if owner != r.ID && r.Scn.Idempotency != "update" {
+			return outcome{next: Recording, status: StatusSkipped, errText: "duplicate of run " + owner.String()}, nil
+		}
+	}
+	return outcome{next: Preparing}, nil
+}
+
+func (e *Engine) model(ctx context.Context, r runRow) (outcome, error) {
+	req := driver.StepRequest{
+		RunID: r.ID.String(), Agent: r.Agent, Scenario: r.Scenario, ModelClass: r.Scn.ModelClass,
+		Instructions: r.Scn.Instructions, Input: r.Input, OutputSchema: r.Scn.OutputSchema,
+		Tools: r.Scn.Tools, MaxSteps: r.Scn.MaxSteps,
+	}
+	if len(r.Error) > len(validationPrefix) && r.Error[:len(validationPrefix)] == validationPrefix {
+		req.Feedback = []string{r.Error[len(validationPrefix):]}
+	}
+	res, err := e.drv.Model.Run(ctx, req)
+	if err != nil {
+		return outcome{}, err
+	}
+	usage := addUsage(r.Usage, res.Usage)
+	usageJSON, err := json.Marshal(usage)
+	if err != nil {
+		return outcome{}, err
+	}
+	return outcome{next: Validating, apply: func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE runs SET output = $2, usage = $3 WHERE id = $1`, r.ID, []byte(res.Output), usageJSON)
+		return err
+	}}, nil
+}
+
+// validate checks the output against the scenario schema; one retry with feedback (STD-0006, step 5).
+func (e *Engine) validate(r runRow) outcome {
+	problem := checkOutput(r.Output, r.Scn.OutputSchema)
+	if problem == "" {
+		return outcome{next: Checking, apply: func(ctx context.Context, tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `UPDATE runs SET error = '' WHERE id = $1`, r.ID)
+			return err
+		}}
+	}
+	if len(r.Error) >= len(validationPrefix) && r.Error[:len(validationPrefix)] == validationPrefix {
+		return outcome{next: Recording, status: StatusInvalid, errText: validationPrefix + problem}
+	}
+	return outcome{next: Modeling, errText: validationPrefix + problem}
+}
+
+// checkOutput is the minimal stage-1 check: a JSON object with the required keys of the schema.
+func checkOutput(output, schema json.RawMessage) string {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(output, &obj); err != nil {
+		return "output is not a JSON object"
+	}
+	if len(schema) == 0 {
+		return ""
+	}
+	var s struct {
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(schema, &s); err != nil {
+		return "output schema is not valid JSON"
+	}
+	for _, k := range s.Required {
+		if _, ok := obj[k]; !ok {
+			return "missing required field " + k
+		}
+	}
+	return ""
+}
+
+func (e *Engine) approve(ctx context.Context, r runRow) (outcome, error) {
+	var waitID, draftID uuid.UUID
+	var fp string
+	var deadline time.Time
+	err := e.pool.QueryRow(ctx, `
+		SELECT w.id, w.draft_id, d.fingerprint, w.deadline
+		FROM waits w JOIN drafts d ON d.id = w.draft_id
+		WHERE w.run_id = $1 AND w.state = 'open'`, r.ID).Scan(&waitID, &draftID, &fp, &deadline)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		fp, err = Fingerprint(r.Output)
+		if err != nil {
+			return outcome{}, err
+		}
+		timeout := time.Duration(r.Scn.Approval.Timeout)
+		if timeout == 0 {
+			timeout = defaultApprovalTimeout
+		}
+		onTimeout := r.Scn.Approval.OnTimeout
+		if onTimeout == "" {
+			onTimeout = "cancel"
+		}
+		waitID, draftID, deadline = uuid.New(), uuid.New(), e.now().Add(timeout)
+		tx, err := e.pool.Begin(ctx)
+		if err != nil {
+			return outcome{}, err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if _, err := tx.Exec(ctx, `INSERT INTO drafts (id, run_id, action, fingerprint, initiator) VALUES ($1, $2, $3, $4, $5)`,
+			draftID, r.ID, []byte(r.Output), fp, r.Env.Initiator.ID); err != nil {
+			return outcome{}, err
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO waits (id, run_id, kind, draft_id, deadline, on_timeout, state)
+			VALUES ($1, $2, 'approval', $3, $4, $5, 'open')`, waitID, r.ID, draftID, deadline, onTimeout); err != nil {
+			return outcome{}, err
+		}
+		if _, err := e.client.InsertTx(ctx, tx, deadlineArgs{WaitID: waitID.String()},
+			&river.InsertOpts{ScheduledAt: deadline}); err != nil {
+			return outcome{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return outcome{}, err
+		}
+	case err != nil:
+		return outcome{}, err
+	}
+	if _, err := e.drv.Channel.AskApproval(ctx, driver.ApprovalRequest{
+		Message: driver.Message{RunID: r.ID.String(), Agent: r.Agent, Connection: r.Connection, ObjectKey: r.ObjectKey},
+		WaitID:  waitID.String(), DraftID: draftID.String(), Fingerprint: fp, Action: r.Output, Deadline: deadline,
+	}); err != nil {
+		return outcome{}, err
+	}
+	return outcome{stay: true}, nil
+}
+
+func (e *Engine) execute(ctx context.Context, r runRow) (outcome, error) {
+	res, err := e.drv.Tools.Call(ctx, r.Agent, r.Scn.Action, r.Output)
+	if err != nil {
+		return outcome{}, err
+	}
+	var ref struct {
+		Ref string `json:"ref"`
+	}
+	_ = json.Unmarshal(res, &ref)
+	if ref.Ref == "" {
+		ref.Ref, _ = Fingerprint(res)
+	}
+	return outcome{next: Responding, apply: func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO artifacts (id, run_id, agent, object_key, system, ref) VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT DO NOTHING`, uuid.New(), r.ID, r.Agent, r.ObjectKey, "tool:"+r.Scn.Action, ref.Ref)
+		return err
+	}}, nil
+}
+
+func (e *Engine) record(r runRow) (outcome, error) {
+	status := r.Status
+	if status == "" {
+		status = StatusOK
+	}
+	rec, err := json.Marshal(Record(r, status, e.now()))
+	if err != nil {
+		return outcome{}, err
+	}
+	return outcome{next: Done, status: status, apply: func(ctx context.Context, tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `INSERT INTO journal_outbox (run_id, record) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+			r.ID, rec); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `UPDATE runs SET finished_at = now() WHERE id = $1`, r.ID)
+		return err
+	}}, nil
+}
+
+// Record builds the run record with STD-0005 field names.
+func Record(r runRow, status string, finished time.Time) map[string]any {
+	op := "invoke_workflow"
+	if r.Scn.Level == 3 {
+		op = "invoke_agent"
+	}
+	rec := map[string]any{
+		"agentic.run.id":                       r.ID.String(),
+		"gen_ai.agent.name":                    r.Agent,
+		"gen_ai.agent.version":                 r.Version,
+		"agentic.scenario":                     r.Scenario,
+		"agentic.connection":                   r.Connection,
+		"gen_ai.operation.name":                op,
+		"agentic.trigger.type":                 r.Env.Trigger.Type,
+		"agentic.trigger.source":               r.Env.Trigger.Source,
+		"agentic.initiator":                    r.Env.Initiator.Kind,
+		"agentic.initiator.ref":                r.Env.Initiator.Ref,
+		"agentic.object.key":                   r.ObjectKey,
+		"agentic.idempotency.key":              r.IdemKey,
+		"agentic.run.received_at":              r.ReceivedAt,
+		"agentic.run.started_at":               r.StartedAt,
+		"agentic.run.finished_at":              finished,
+		"agentic.run.status":                   status,
+		"agentic.output":                       r.Output,
+		"agentic.model.class":                  r.Scn.ModelClass,
+		"gen_ai.response.model":                r.Usage.Model,
+		"gen_ai.provider.name":                 r.Usage.Provider,
+		"gen_ai.response.finish_reasons":       r.Usage.FinishReason,
+		"gen_ai.usage.input_tokens":            r.Usage.InputTokens,
+		"gen_ai.usage.output_tokens":           r.Usage.OutputTokens,
+		"gen_ai.usage.cache_read.input_tokens": r.Usage.CachedTokens,
+		"agentic.usage.reasoning_tokens":       r.Usage.ReasoningTokens,
+		"agentic.usage.cost":                   r.Usage.Cost,
+		"agentic.run.tool_calls":               r.Usage.ToolCalls,
+		"agentic.run.tool_errors":              r.Usage.ToolErrors,
+		"agentic.error":                        r.Error,
+	}
+	return rec
+}
+
+func addUsage(a, b driver.Usage) driver.Usage {
+	a.InputTokens += b.InputTokens
+	a.OutputTokens += b.OutputTokens
+	a.CachedTokens += b.CachedTokens
+	a.ReasoningTokens += b.ReasoningTokens
+	a.ToolCalls += b.ToolCalls
+	a.ToolErrors += b.ToolErrors
+	a.Cost += b.Cost
+	if b.Model != "" {
+		a.Model, a.Provider, a.FinishReason = b.Model, b.Provider, b.FinishReason
+	}
+	return a
+}
+
+type deadlineWorker struct {
+	river.WorkerDefaults[deadlineArgs]
+	e *Engine
+}
+
+// Work applies the timeout outcome if the wait is still open (STD-0006, I5).
+func (w *deadlineWorker) Work(ctx context.Context, job *river.Job[deadlineArgs]) error {
+	e := w.e
+	tx, err := e.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var runID uuid.UUID
+	var state string
+	err = tx.QueryRow(ctx, `SELECT run_id, state FROM waits WHERE id = $1 FOR UPDATE`, job.Args.WaitID).Scan(&runID, &state)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if state != "open" {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `UPDATE waits SET state = 'expired', resolved_at = now() WHERE id = $1`, job.Args.WaitID); err != nil {
+		return err
+	}
+	if err := e.transition(ctx, tx, runID, Approving, Responding, StatusCancelled, "approval expired", e.now(), job.Attempt); err != nil {
+		if errors.Is(err, errStale) {
+			return nil
+		}
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+type shipWorker struct {
+	river.WorkerDefaults[shipArgs]
+	e *Engine
+}
+
+// Work ships pending run records to the journal store.
+func (w *shipWorker) Work(ctx context.Context, _ *river.Job[shipArgs]) error {
+	e := w.e
+	tx, err := e.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	rows, err := tx.Query(ctx, `
+		SELECT run_id, record FROM journal_outbox WHERE shipped_at IS NULL
+		ORDER BY created_at LIMIT 500 FOR UPDATE SKIP LOCKED`)
+	if err != nil {
+		return err
+	}
+	var ids []uuid.UUID
+	var recs []json.RawMessage
+	for rows.Next() {
+		var id uuid.UUID
+		var rec []byte
+		if err := rows.Scan(&id, &rec); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+		recs = append(recs, rec)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	if err := e.drv.Journal.Write(ctx, recs); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE journal_outbox SET shipped_at = now() WHERE run_id = ANY($1)`, ids); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
