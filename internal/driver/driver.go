@@ -25,6 +25,8 @@ type StepRequest struct {
 	MaxSteps     int
 	// Feedback carries validation errors of the previous attempt, empty on the first one.
 	Feedback []string
+	// Traceparent links calls made by the driver to the run trace (W3C header value).
+	Traceparent string
 }
 
 // Usage is what a step consumed.

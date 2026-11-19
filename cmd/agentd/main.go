@@ -18,7 +18,10 @@ import (
 	"github.com/charterhq/charter/internal/pkg"
 	"github.com/charterhq/charter/internal/registry"
 	"github.com/charterhq/charter/internal/run"
+	"github.com/charterhq/charter/internal/telemetry"
 )
+
+var version = "dev"
 
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
@@ -88,7 +91,16 @@ func runMain(log *slog.Logger, args []string) error {
 				return err
 			}
 		}
-		eng, err := run.New(pool, drv, run.Config{Logger: log})
+		tel, err := telemetry.Setup(ctx, "charter-agentd", version)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = tel.Shutdown(sctx)
+		}()
+		eng, err := run.New(pool, drv, run.Config{Logger: log, Telemetry: tel})
 		if err != nil {
 			return err
 		}

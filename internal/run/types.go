@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/charterhq/charter/internal/driver"
+	"github.com/charterhq/charter/internal/telemetry"
 )
 
 // State is a step of the run state machine.
@@ -52,6 +53,8 @@ type Envelope struct {
 	// Reply is where the answer goes when the launch has a place to answer in (a thread, a chat).
 	Reply   *driver.Target  `json:"reply,omitempty"`
 	Payload json.RawMessage `json:"payload"`
+	// Trace is fixed at accept time; see package telemetry.
+	Trace telemetry.Trace `json:"trace"`
 }
 
 type Trigger struct {

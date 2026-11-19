@@ -17,6 +17,7 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
 	"github.com/charterhq/charter/internal/driver"
+	"github.com/charterhq/charter/internal/telemetry"
 )
 
 // Config tunes the engine. Zero values mean production defaults.
@@ -29,6 +30,8 @@ type Config struct {
 	// RescueAfter returns jobs of a crashed process to the queue.
 	RescueAfter time.Duration
 	Logger      *slog.Logger
+	// Telemetry exports run traces; nil switches them off.
+	Telemetry *telemetry.Exporter
 }
 
 // Engine owns runs: it accepts launches, drives the state machine and resolves waits.
@@ -37,6 +40,7 @@ type Engine struct {
 	drv    driver.Set
 	client *river.Client[pgx.Tx]
 	log    *slog.Logger
+	tel    *telemetry.Exporter
 	now    func() time.Time
 }
 
@@ -72,7 +76,7 @@ func New(pool *pgxpool.Pool, drv driver.Set, cfg Config) (*Engine, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
-	e := &Engine{pool: pool, drv: drv, log: cfg.Logger, now: time.Now}
+	e := &Engine{pool: pool, drv: drv, log: cfg.Logger, now: time.Now, tel: cfg.Telemetry}
 
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &stepWorker{e: e})
@@ -113,6 +117,9 @@ func (e *Engine) StopAndCancel(ctx context.Context) error { return e.client.Stop
 func (e *Engine) Accept(ctx context.Context, agent, scenario string, env Envelope) (runID string, duplicate bool, err error) {
 	if env.ReceivedAt.IsZero() {
 		env.ReceivedAt = e.now()
+	}
+	if env.Trace.TraceID == "" {
+		env.Trace = telemetry.New("")
 	}
 	envJSON, err := json.Marshal(env)
 	if err != nil {

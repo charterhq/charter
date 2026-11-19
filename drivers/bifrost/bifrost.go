@@ -173,6 +173,9 @@ func (m *Model) Run(ctx context.Context, req driver.StepRequest) (driver.StepRes
 	hreq.Header.Set("x-bf-session-id", req.RunID)
 	hreq.Header.Set("x-bf-lh-agent", req.Agent)
 	hreq.Header.Set("x-bf-lh-scenario", req.Scenario)
+	if req.Traceparent != "" {
+		hreq.Header.Set("traceparent", req.Traceparent)
+	}
 
 	resp, err := m.cfg.HTTP.Do(hreq)
 	if err != nil {

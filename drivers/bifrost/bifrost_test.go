@@ -34,7 +34,7 @@ func TestRunAgainstFakeGateway(t *testing.T) {
 		RunID: "r1", Agent: "a", Scenario: "s", ModelClass: "fast", Instructions: "do it",
 		Params: map[string]any{"reasoning": "low", "max_output_tokens": 500, "response_format": "json"},
 		Input:  json.RawMessage(`{"x":1}`), OutputSchema: json.RawMessage(`{"type":"object"}`),
-		Feedback: []string{"missing verdict"},
+		Feedback: []string{"missing verdict"}, Traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,8 @@ func TestRunAgainstFakeGateway(t *testing.T) {
 	if len(msgs) != 3 || !strings.Contains(msgs[2].(map[string]any)["content"].(string), "missing verdict") {
 		t.Fatalf("feedback not sent: %v", msgs)
 	}
-	if hdr.Get("Authorization") != "Bearer k" || hdr.Get("x-bf-session-id") != "r1" {
+	if hdr.Get("Authorization") != "Bearer k" || hdr.Get("x-bf-session-id") != "r1" ||
+		hdr.Get("traceparent") != "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" {
 		t.Fatalf("headers %v", hdr)
 	}
 }

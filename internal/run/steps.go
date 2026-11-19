@@ -231,7 +231,7 @@ func (e *Engine) model(ctx context.Context, r runRow) (outcome, error) {
 	req := driver.StepRequest{
 		RunID: r.ID.String(), Agent: r.Agent, Scenario: r.Scenario, ModelClass: r.Scn.ModelClass, Params: r.Scn.ModelParams,
 		Instructions: r.Scn.Instructions, Input: r.Input, OutputSchema: r.Scn.OutputSchema,
-		Tools: r.Scn.Tools, MaxSteps: r.Scn.MaxSteps,
+		Tools: r.Scn.Tools, MaxSteps: r.Scn.MaxSteps, Traceparent: r.Env.Trace.Traceparent(),
 	}
 	if len(r.Error) > len(validationPrefix) && r.Error[:len(validationPrefix)] == validationPrefix {
 		req.Feedback = []string{r.Error[len(validationPrefix):]}
@@ -369,10 +369,12 @@ func (e *Engine) record(ctx context.Context, r runRow) (outcome, error) {
 	if status == StatusFailed || status == StatusInvalid {
 		e.notifyFailure(ctx, r, status)
 	}
-	rec, err := json.Marshal(Record(r, status, e.now()))
+	finished := e.now()
+	rec, err := json.Marshal(Record(r, status, finished))
 	if err != nil {
 		return outcome{}, err
 	}
+	e.exportTrace(ctx, r, status, finished)
 	return outcome{next: Done, status: status, apply: func(ctx context.Context, tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `INSERT INTO journal_outbox (run_id, record) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
 			r.ID, rec); err != nil {
@@ -419,6 +421,7 @@ func Record(r runRow, status string, finished time.Time) map[string]any {
 		"agentic.run.tool_calls":               r.Usage.ToolCalls,
 		"agentic.run.tool_errors":              r.Usage.ToolErrors,
 		"agentic.error":                        r.Error,
+		"trace_id":                             r.Env.Trace.TraceID,
 	}
 	return rec
 }

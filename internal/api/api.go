@@ -24,6 +24,7 @@ import (
 	"github.com/charterhq/charter/internal/registry"
 	"github.com/charterhq/charter/internal/run"
 	"github.com/charterhq/charter/internal/signing"
+	"github.com/charterhq/charter/internal/telemetry"
 )
 
 // Server serves /v1.
@@ -115,6 +116,7 @@ func (s *Server) launch(w http.ResponseWriter, r *http.Request) {
 	out := []accepted{}
 	for _, env := range envs {
 		env.Connection = connection
+		env.Trace = telemetry.New(r.Header.Get("traceparent"))
 		if env.Initiator.Kind == "" {
 			env.Initiator = run.Initiator{Kind: "system", ID: caller(r.Context())}
 		}
