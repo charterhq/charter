@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -46,7 +48,12 @@ func Apply(ctx context.Context, pool *pgxpool.Pool, a Agent, version, gitSHA str
 		INSERT INTO agent_versions (id, agent, version, git_sha, digest, package, applied_at)
 		VALUES ($1, $2, $3, $4, $5, $6, now())
 		ON CONFLICT (agent, version) DO UPDATE SET applied_at = now()
+		WHERE agent_versions.digest = excluded.digest
 		RETURNING id`, id, a.Name, version, gitSHA, hex.EncodeToString(sum[:]), b).Scan(&id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// A version is immutable: the same number with other content would silently keep the old package.
+			return "", fmt.Errorf("%w: %s %s", ErrVersionChanged, a.Name, version)
+		}
 		return "", err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -54,6 +61,9 @@ func Apply(ctx context.Context, pool *pgxpool.Pool, a Agent, version, gitSHA str
 	}
 	return id.String(), nil
 }
+
+// ErrVersionChanged means the version is already applied with different content.
+var ErrVersionChanged = errors.New("version already applied with different content, bump the version")
 
 // Suspend switches an agent off (connection "" means the whole agent). Takes effect for new runs at once.
 func Suspend(ctx context.Context, pool *pgxpool.Pool, agent, connection, by, reason string, byPlatform bool) error {
