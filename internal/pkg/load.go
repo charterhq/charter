@@ -15,6 +15,7 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	yaml "go.yaml.in/yaml/v3"
 
+	"github.com/charterhq/charter/internal/render"
 	"github.com/charterhq/charter/internal/schema"
 	"github.com/charterhq/charter/schemas"
 )
@@ -159,6 +160,16 @@ func loadScenario(fsys fs.FS, name string, agentTools map[string][]string, ps *P
 	}
 	s.InputSchema = readSchema(fsys, path.Join(dir, sp.InputSchema), ps)
 	s.OutputSchema = readSchema(fsys, path.Join(dir, sp.OutputSchema), ps)
+	if sp.Response != nil {
+		tf := path.Join(dir, sp.Response.Template)
+		if b, err := fs.ReadFile(fsys, tf); err != nil {
+			ps.add(tf, "response template is missing")
+		} else if _, err := render.Parse(tf, string(b)); err != nil {
+			ps.add(tf, "response template does not parse: %v", err)
+		} else {
+			s.Template = string(b)
+		}
+	}
 
 	if sp.Level == 1 && len(sp.Tools) > 0 {
 		ps.add(file, "level 1 is a single model call over prepared input and cannot use tools")

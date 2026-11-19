@@ -1,0 +1,7 @@
+**{{ .output.category }}** → queue `{{ .output.queue }}`
+{{ .output.reason | clip 200 }}
+_{{ .run.agent }} v{{ .run.version }} · run `{{ .run.short_id }}`_
+
+{{- define "failed" -}}
+Ticket was not classified, a human is needed: {{ .run.error | clip 200 }}
+{{- end }}

@@ -129,3 +129,13 @@ func (t *Tools) CallCount() int {
 	defer t.mu.Unlock()
 	return len(t.Calls)
 }
+
+// LastPost returns the latest posted message, if any.
+func (c *Channel) LastPost() (driver.Message, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.Posts) == 0 {
+		return driver.Message{}, false
+	}
+	return c.Posts[len(c.Posts)-1], true
+}

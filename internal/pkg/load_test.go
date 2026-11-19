@@ -99,6 +99,12 @@ func TestProblems(t *testing.T) {
 		{"connection for other agent", func(m fstest.MapFS) {
 			replace(m, "connections/support.yml", "name: ticket-triage", "name: other")
 		}, "connection is for agent"},
+		{"missing response template", func(m fstest.MapFS) {
+			delete(m, "scenarios/classify/response.md.tmpl")
+		}, "response template is missing"},
+		{"broken response template", func(m fstest.MapFS) {
+			m["scenarios/classify/response.md.tmpl"] = &fstest.MapFile{Data: []byte("{{ .output.x | nosuch }}")}
+		}, "response template does not parse"},
 		{"approval on advise", func(m fstest.MapFS) {
 			replace(m, "scenarios/classify/scenario.yml", "  autonomy: advise\n", "  autonomy: advise\n  approval: {required: true}\n")
 		}, "approval is only meaningful"},

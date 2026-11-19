@@ -13,6 +13,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/charterhq/charter/internal/driver"
+	"github.com/charterhq/charter/internal/render"
 	"github.com/charterhq/charter/internal/schema"
 )
 
@@ -189,15 +190,12 @@ func (e *Engine) step(ctx context.Context, r runRow) (outcome, error) {
 	case Executing:
 		return e.execute(ctx, r)
 	case Responding:
-		if _, err := e.drv.Channel.Post(ctx, driver.Message{
-			RunID: r.ID.String(), Agent: r.Agent, Connection: r.Connection, ObjectKey: r.ObjectKey,
-			Target: r.target(), Data: r.Output,
-		}); err != nil {
+		if _, err := e.drv.Channel.Post(ctx, e.answer(r)); err != nil {
 			return outcome{}, err
 		}
 		return outcome{next: Recording}, nil
 	case Recording:
-		return e.record(r)
+		return e.record(ctx, r)
 	}
 	return outcome{}, fmt.Errorf("unknown state %q", r.State)
 }
@@ -363,10 +361,13 @@ func (e *Engine) execute(ctx context.Context, r runRow) (outcome, error) {
 	}}, nil
 }
 
-func (e *Engine) record(r runRow) (outcome, error) {
+func (e *Engine) record(ctx context.Context, r runRow) (outcome, error) {
 	status := r.Status
 	if status == "" {
 		status = StatusOK
+	}
+	if status == StatusFailed || status == StatusInvalid {
+		e.notifyFailure(ctx, r, status)
 	}
 	rec, err := json.Marshal(Record(r, status, e.now()))
 	if err != nil {
@@ -518,4 +519,61 @@ func (w *shipWorker) Work(ctx context.Context, _ *river.Job[shipArgs]) error {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// renderRun is the run metadata a response template sees.
+func (e *Engine) renderRun(r runRow, status string) render.Run {
+	rr := render.Run{
+		ID: r.ID.String(), ShortID: r.ID.String()[:8], Agent: r.Agent, Version: r.Version, Scenario: r.Scenario,
+		Connection: r.Connection, Autonomy: r.Scn.Autonomy, Status: status, Error: strings.TrimPrefix(r.Error, validationPrefix),
+	}
+	if r.StartedAt != nil {
+		rr.Seconds = e.now().Sub(*r.StartedAt).Seconds()
+	}
+	return rr
+}
+
+// answer builds the message with the scenario's response template. Without a template, or when it
+// fails, the driver shows the raw output: the answer still reaches people.
+func (e *Engine) answer(r runRow) driver.Message {
+	m := driver.Message{
+		RunID: r.ID.String(), Agent: r.Agent, Connection: r.Connection, ObjectKey: r.ObjectKey,
+		Target: r.target(), Data: r.Output,
+	}
+	if r.Scn.Template == "" {
+		return m
+	}
+	text, err := render.Output(r.Scn.Template, e.renderRun(r, StatusOK), r.Input, r.Output)
+	if err != nil {
+		e.log.Warn("response template failed, posting raw output", "run_id", r.ID, "agent", r.Agent, "err", err)
+		return m
+	}
+	m.Text = text
+	return m
+}
+
+// notifyFailure tells the place the run would answer in that there is no answer (on_failure).
+// Best effort: a channel error must not keep the run out of the journal.
+func (e *Engine) notifyFailure(ctx context.Context, r runRow, status string) {
+	t := r.target()
+	if t.Channel == "" {
+		return
+	}
+	text := ""
+	if r.Scn.Template != "" {
+		if msg, ok, err := render.Failed(r.Scn.Template, e.renderRun(r, status), r.Input); err != nil {
+			e.log.Warn("failure template failed", "run_id", r.ID, "err", err)
+		} else if ok {
+			text = msg
+		}
+	}
+	if text == "" {
+		text = fmt.Sprintf("**%s**: run `%s` ended with status `%s`, no answer – a human is needed.\n%s",
+			r.Agent, r.ID.String()[:8], status, strings.TrimPrefix(r.Error, validationPrefix))
+	}
+	if _, err := e.drv.Channel.Post(ctx, driver.Message{
+		RunID: r.ID.String(), Agent: r.Agent, Connection: r.Connection, ObjectKey: r.ObjectKey, Target: t, Text: text,
+	}); err != nil {
+		e.log.Warn("failure notice not delivered", "run_id", r.ID, "err", err)
+	}
 }

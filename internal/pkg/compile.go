@@ -32,6 +32,7 @@ func Compile(p *Package) (json.RawMessage, error) {
 			MaxSteps:     p.Agent.Spec.Budgets.MaxSteps,
 			Autonomy:     s.Spec.Autonomy,
 			Idempotency:  s.Spec.Idempotency.OnRepeat,
+			Template:     s.Template,
 		}
 		if a := s.Spec.Approval; a != nil && a.Required {
 			ra := &run.Approval{OnTimeout: a.OnTimeout, DistinctApprover: a.DistinctApprover}

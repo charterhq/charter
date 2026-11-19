@@ -12,12 +12,15 @@ import (
 	"time"
 
 	"github.com/charterhq/charter/internal/pkg"
+	"github.com/charterhq/charter/internal/render"
 )
 
 var version = "dev"
 
 const usage = `usage:
   agentctl validate <package-dir> [--json]          check an agent package
+  agentctl render <package-dir> <scenario> <output.json> [--failed error]
+                                                     show the message a run would post
   agentctl suspend <agent> <reason> [connection]     switch an agent off
   agentctl resume <agent> <reason> [connection]      switch an agent back on
   agentctl agents                                    list agents and switches
@@ -44,6 +47,15 @@ func run(args []string) int {
 			break
 		}
 		return validate(args[1], len(args) > 2 && args[2] == "--json")
+	case "render":
+		if len(args) < 4 {
+			break
+		}
+		failed := ""
+		if len(args) > 5 && args[4] == "--failed" {
+			failed = args[5]
+		}
+		return renderCmd(args[1], args[2], args[3], failed)
 	case "suspend", "resume":
 		if len(args) < 3 {
 			break
@@ -135,5 +147,45 @@ func apiCall(method, path string, body any) int {
 	if resp.StatusCode >= 300 {
 		return 1
 	}
+	return 0
+}
+
+// renderCmd renders a scenario's response template over a saved output, without a run.
+func renderCmd(dir, scenario, outputFile, failed string) int {
+	p, problems := pkg.Load(os.DirFS(dir))
+	if problems != nil {
+		for _, pr := range problems {
+			fmt.Fprintln(os.Stderr, pr)
+		}
+		return 1
+	}
+	s, ok := p.Scenarios[scenario]
+	if !ok || s.Template == "" {
+		fmt.Fprintf(os.Stderr, "scenario %q has no response template\n", scenario)
+		return 1
+	}
+	out, err := os.ReadFile(outputFile)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	r := render.Run{ID: "00000000-0000-0000-0000-000000000000", ShortID: "00000000", Agent: p.Agent.Metadata.Name,
+		Version: p.Agent.Metadata.Version, Scenario: scenario, Autonomy: s.Spec.Autonomy, Status: "ok", Seconds: 42}
+	var msg string
+	if failed != "" {
+		r.Status, r.Error = "failed", failed
+		var has bool
+		msg, has, err = render.Failed(s.Template, r, nil)
+		if err == nil && !has {
+			err = fmt.Errorf("template has no %q block", render.FailedBlock)
+		}
+	} else {
+		msg, err = render.Output(s.Template, r, nil, out)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Println(msg)
 	return 0
 }

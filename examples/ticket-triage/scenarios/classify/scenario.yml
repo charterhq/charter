@@ -11,6 +11,7 @@ spec:
   output_schema: output.schema.json
   instructions: instructions.md
   autonomy: advise
+  response: {template: response.md.tmpl}
   idempotency: {key: [ticket.id, scenario, input.hash], on_repeat: skip}
   on_failure: owner
   eval: eval/

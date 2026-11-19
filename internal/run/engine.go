@@ -86,7 +86,8 @@ func New(pool *pgxpool.Pool, drv driver.Set, cfg Config) (*Engine, error) {
 		FetchCooldown:        cfg.FetchCooldown,
 		JobTimeout:           cfg.StepTimeout,
 		RescueStuckJobsAfter: cfg.RescueAfter,
-		Logger:               cfg.Logger,
+		// River reports every poll at INFO; the core keeps only its warnings and errors.
+		Logger: slog.New(minLevel{h: cfg.Logger.Handler(), min: slog.LevelWarn}),
 		PeriodicJobs: []*river.PeriodicJob{
 			river.NewPeriodicJob(river.PeriodicInterval(cfg.ShipInterval),
 				func() (river.JobArgs, *river.InsertOpts) { return shipArgs{}, nil },
@@ -279,3 +280,18 @@ func (e *Engine) transition(ctx context.Context, tx pgx.Tx, runID uuid.UUID, fro
 	_, err = e.client.InsertTx(ctx, tx, stepArgs{RunID: runID.String()}, nil)
 	return err
 }
+
+// minLevel drops records below a level.
+type minLevel struct {
+	h   slog.Handler
+	min slog.Level
+}
+
+func (m minLevel) Enabled(ctx context.Context, l slog.Level) bool {
+	return l >= m.min && m.h.Enabled(ctx, l)
+}
+func (m minLevel) Handle(ctx context.Context, r slog.Record) error { return m.h.Handle(ctx, r) }
+func (m minLevel) WithAttrs(a []slog.Attr) slog.Handler {
+	return minLevel{h: m.h.WithAttrs(a), min: m.min}
+}
+func (m minLevel) WithGroup(n string) slog.Handler { return minLevel{h: m.h.WithGroup(n), min: m.min} }

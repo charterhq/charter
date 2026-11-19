@@ -85,6 +85,8 @@ type Scenario struct {
 	Action       string          `json:"action,omitempty"`
 	Approval     *Approval       `json:"approval,omitempty"`
 	Idempotency  string          `json:"idempotency,omitempty"` // update, skip
+	// Template renders the answer for people (Go text/template, see package render).
+	Template string `json:"template,omitempty"`
 }
 
 // Approval configures step 7.

@@ -125,6 +125,7 @@ type Scenario struct {
 	Instructions string          `json:"-"`
 	InputSchema  json.RawMessage `json:"-"`
 	OutputSchema json.RawMessage `json:"-"`
+	Template     string          `json:"-"`
 	EvalCases    int             `json:"-"`
 }
 
@@ -145,6 +146,12 @@ type ScenarioSpec struct {
 	Eval         string         `json:"eval"`
 	Feedback     *Feedback      `json:"feedback,omitempty"`
 	Params       map[string]any `json:"params,omitempty"`
+	Response     *Response      `json:"response,omitempty"`
+}
+
+// Response says how the answer is shown to people.
+type Response struct {
+	Template string `json:"template"`
 }
 
 type Trigger struct {
