@@ -22,7 +22,50 @@ type Config struct {
 	Classes map[string]string
 	// Params are extra request fields per class, e.g. max_tokens or reasoning settings.
 	Params map[string]map[string]any
+	// Prices price a call when the gateway does not return its cost, keyed by "provider/model"
+	// or by "provider". Without a price the cost stays 0 and the run record shows it.
+	Prices map[string]Price
 	HTTP   *http.Client
+}
+
+// Price is USD per million tokens.
+type Price struct {
+	Input       float64 `json:"input"`
+	CachedInput float64 `json:"cached_input"`
+	Output      float64 `json:"output"`
+}
+
+// cost of a call. Cached tokens are part of the input count and are priced at their own rate.
+func (p Price) cost(u driver.Usage) float64 {
+	cached := min(u.CachedTokens, u.InputTokens)
+	return (float64(u.InputTokens-cached)*p.Input + float64(cached)*p.CachedInput + float64(u.OutputTokens)*p.Output) / 1e6
+}
+
+func (m *Model) price(provider, model string) (Price, bool) {
+	if p, ok := m.cfg.Prices[provider+"/"+model]; ok {
+		return p, true
+	}
+	p, ok := m.cfg.Prices[provider]
+	return p, ok
+}
+
+// gatewayCost reads usage.cost, which the gateway returns either as a number or as {"total_cost": n},
+// and only for some providers.
+func gatewayCost(raw json.RawMessage) (float64, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0, false
+	}
+	var n float64
+	if json.Unmarshal(raw, &n) == nil {
+		return n, true
+	}
+	var o struct {
+		TotalCost *float64 `json:"total_cost"`
+	}
+	if json.Unmarshal(raw, &o) == nil && o.TotalCost != nil {
+		return *o.TotalCost, true
+	}
+	return 0, false
 }
 
 // Model is a driver.ModelStep backed by Bifrost.
@@ -64,6 +107,7 @@ type chatResponse struct {
 		CompletionTokensDetails struct {
 			ReasoningTokens int `json:"reasoning_tokens"`
 		} `json:"completion_tokens_details"`
+		Cost json.RawMessage `json:"cost"`
 	} `json:"usage"`
 	ExtraFields struct {
 		Provider string `json:"provider"`
@@ -162,6 +206,11 @@ func (m *Model) Run(ctx context.Context, req driver.StepRequest) (driver.StepRes
 		Model:           cr.Model,
 		Provider:        cr.ExtraFields.Provider,
 		FinishReason:    cr.Choices[0].FinishReason,
+	}
+	if c, ok := gatewayCost(cr.Usage.Cost); ok {
+		usage.Cost = c
+	} else if p, ok := m.price(usage.Provider, usage.Model); ok {
+		usage.Cost = p.cost(usage)
 	}
 	out := extractJSON(cr.Choices[0].Message.Content)
 	return driver.StepResult{Output: json.RawMessage(out), Usage: usage}, nil

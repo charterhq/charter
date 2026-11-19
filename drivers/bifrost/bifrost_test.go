@@ -105,3 +105,40 @@ func TestLive(t *testing.T) {
 	t.Logf("category=%v model=%s provider=%s tokens=%d/%d", out["category"], res.Usage.Model, res.Usage.Provider,
 		res.Usage.InputTokens, res.Usage.OutputTokens)
 }
+
+func TestCost(t *testing.T) {
+	cases := []struct {
+		name, usage string
+		want        float64
+	}{
+		{"gateway number", `"cost":0.5`, 0.5},
+		{"gateway object", `"cost":{"total_cost":0.25}`, 0.25},
+		{"price by provider and model", ``, (800*0.30 + 200*0.006 + 500*1.20) / 1e6},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			extra := ""
+			if c.usage != "" {
+				extra = "," + c.usage
+			}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(`{"model":"deepseek-v4.1-flash","choices":[{"message":{"content":"{}"},"finish_reason":"stop"}],
+					"usage":{"prompt_tokens":1000,"completion_tokens":500,"prompt_tokens_details":{"cached_tokens":200}` + extra + `},
+					"extra_fields":{"provider":"opencode-zen"}}`))
+			}))
+			defer srv.Close()
+			m := bifrost.New(bifrost.Config{URL: srv.URL, Key: "k", Classes: map[string]string{"c": "a"},
+				Prices: map[string]bifrost.Price{
+					"opencode-zen/deepseek-v4.1-flash": {Input: 0.30, CachedInput: 0.006, Output: 1.20},
+					"opencode-zen":                     {Input: 9, Output: 9},
+				}})
+			res, err := m.Run(context.Background(), driver.StepRequest{ModelClass: "c", Input: json.RawMessage(`{}`)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if d := res.Usage.Cost - c.want; d > 1e-12 || d < -1e-12 {
+				t.Fatalf("cost %v want %v", res.Usage.Cost, c.want)
+			}
+		})
+	}
+}

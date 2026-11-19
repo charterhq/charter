@@ -65,7 +65,13 @@ func Drivers(log *slog.Logger) (driver.Set, *clickhouse.Journal, error) {
 				return set, nil, fmt.Errorf("CHARTER_MODEL_PARAMS: %w", err)
 			}
 		}
-		set.Model = bifrost.New(bifrost.Config{URL: url, Key: key, Classes: classes, Params: params})
+		var prices map[string]bifrost.Price
+		if p := Env("CHARTER_MODEL_PRICES"); p != "" {
+			if err := json.Unmarshal([]byte(p), &prices); err != nil {
+				return set, nil, fmt.Errorf("CHARTER_MODEL_PRICES must map provider[/model] to {input, cached_input, output} USD per 1M tokens: %w", err)
+			}
+		}
+		set.Model = bifrost.New(bifrost.Config{URL: url, Key: key, Classes: classes, Params: params, Prices: prices})
 	} else {
 		log.Warn("model driver is a stub: CHARTER_BIFROST_URL or CHARTER_BIFROST_KEY is not set")
 		set.Model = &stub.Model{}
