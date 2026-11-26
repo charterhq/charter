@@ -15,7 +15,7 @@ Status: early development, not ready for use.
 | `internal/run` | run state machine (accept, filter, prepare, model, validate, check, approve, execute, respond, record) |
 | `internal/pkg` | v1 package format: load, JSON Schema and semantic checks, compile for the engine |
 | `internal/registry` | agents, immutable package versions, kill switch |
-| `internal/api` | HTTP API `/v1`: launches (alertmanager, raw), approvals, kill switch, runs, agents |
+| `internal/api` | HTTP API `/v1`: team hooks, calls, launches (alertmanager, raw), approvals, kill switch, runs, agents |
 | `internal/driver` | driver interfaces |
 | `drivers/` | driver implementations; `stub` for tests |
 | `schemas/` | JSON Schemas of the v1 package format |
@@ -38,6 +38,28 @@ agentctl runs ticket-triage           # CHARTER_URL, CHARTER_TOKEN
 ```
 
 See `deploy/compose/charter.env.example` for driver settings.
+
+## Launches
+
+A scenario names logical sources in `spec.triggers`; a team's connection (`connections/<team>.yml`) binds them to its events. A source the connection does not list does not launch the agent for that team.
+
+```yaml
+spec:
+  scenarios: [triage]
+  triggers:
+    alerts: {receiver: alertmanager}            # event source: webhook format, alertmanager or raw
+    smoke: {schedule: "CRON_TZ=Europe/Moscow 0 9 * * *", input: {probe: true}}  # schedule source
+  channels: {reply: <channel-id>, shadow: <channel-id>}
+  status: active                                # shadow: answers go to the shadow channel only, nothing is executed; paused: no launches
+```
+
+| Trigger type | How it reaches the core |
+|---|---|
+| `event` | `POST /v1/hooks/{agent}/{connection}/{source}` with a bearer token, body in the receiver format |
+| `schedule` | the core: every minute the River leader launches occurrences due in the last 10 minutes, each once (`CHARTER_SCHEDULE_TZ` for crons without `CRON_TZ`, UTC by default) |
+| `call` | `POST /v1/agents/{agent}/scenarios/{scenario}/call?connection=&wait=` or `agentctl call` |
+
+The answer goes to the thread the launch came from, else to `channels.reply`.
 
 ## Development
 

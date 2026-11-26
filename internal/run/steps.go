@@ -178,6 +178,8 @@ func (e *Engine) step(ctx context.Context, r runRow) (outcome, error) {
 		return e.validate(r), nil
 	case Checking:
 		switch {
+		case r.Env.Shadow:
+			return outcome{next: Responding}, nil // a connection in shadow never acts, people see the draft
 		case r.Scn.Approval != nil:
 			return outcome{next: Approving}, nil
 		case r.Scn.Autonomy == "act" && r.Scn.Action != "":
@@ -190,6 +192,9 @@ func (e *Engine) step(ctx context.Context, r runRow) (outcome, error) {
 	case Executing:
 		return e.execute(ctx, r)
 	case Responding:
+		if r.Env.Shadow && r.Env.Reply == nil {
+			return outcome{next: Recording}, nil // shadow without a shadow channel: journal only
+		}
 		if _, err := e.drv.Channel.Post(ctx, e.answer(r)); err != nil {
 			return outcome{}, err
 		}

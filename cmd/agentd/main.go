@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	_ "time/tzdata" // CRON_TZ and CHARTER_SCHEDULE_TZ work in images without a zone database
 
 	"github.com/charterhq/charter/internal/api"
 	"github.com/charterhq/charter/internal/config"
@@ -100,7 +101,13 @@ func runMain(log *slog.Logger, args []string) error {
 			defer cancel()
 			_ = tel.Shutdown(sctx)
 		}()
-		eng, err := run.New(pool, drv, run.Config{Logger: log, Telemetry: tel})
+		loc := time.UTC
+		if tz := config.Env("CHARTER_SCHEDULE_TZ"); tz != "" {
+			if loc, err = time.LoadLocation(tz); err != nil {
+				return fmt.Errorf("CHARTER_SCHEDULE_TZ: %w", err)
+			}
+		}
+		eng, err := run.New(pool, drv, run.Config{Logger: log, Telemetry: tel, ScheduleLocation: loc})
 		if err != nil {
 			return err
 		}

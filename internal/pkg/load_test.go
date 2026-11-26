@@ -66,8 +66,12 @@ func TestExampleIsValid(t *testing.T) {
 	if err := json.Unmarshal(raw, &st); err != nil {
 		t.Fatal(err)
 	}
+	c := st.Connections["support"]
+	if c.Status != "shadow" || c.Channels["shadow"] != "support-triage-shadow" || c.Triggers["tickets"].Receiver != "raw" {
+		t.Fatalf("compiled connection: %+v", c)
+	}
 	s := st.Scenarios["classify"]
-	if s.ModelClass != "fast" || s.Level != 1 || len(s.OutputSchema) == 0 || !strings.Contains(s.Instructions, "support triage") {
+	if s.ModelClass != "fast" || s.Level != 1 || len(s.Triggers) != 1 || len(s.OutputSchema) == 0 || !strings.Contains(s.Instructions, "support triage") {
 		t.Fatalf("compiled scenario: %+v", s)
 	}
 }
@@ -114,6 +118,23 @@ func TestProblems(t *testing.T) {
 		{"action on advise", func(m fstest.MapFS) {
 			replace(m, "scenarios/classify/scenario.yml", "  autonomy: advise\n", "  autonomy: advise\n  action: tracker.add_comment\n")
 		}, "only meaningful for autonomy act"},
+		{"schedule trigger without cron", func(m fstest.MapFS) {
+			replace(m, "scenarios/classify/scenario.yml", "    - {type: event, source: tickets}\n",
+				"    - {type: event, source: tickets}\n    - {type: schedule, source: digest}\n")
+		}, "type schedule needs a schedule"},
+		{"bad cron", func(m fstest.MapFS) {
+			replace(m, "scenarios/classify/scenario.yml", "    - {type: event, source: tickets}\n",
+				"    - {type: event, source: tickets}\n    - {type: schedule, source: digest, schedule: \"61 * * * *\"}\n")
+		}, `schedule "61 * * * *"`},
+		{"connection binds unknown source", func(m fstest.MapFS) {
+			replace(m, "connections/support.yml", "    tickets: {receiver: raw}\n", "    tickets: {receiver: raw}\n    mail: {}\n")
+		}, `trigger "mail" is not a source`},
+		{"schedule on event source", func(m fstest.MapFS) {
+			replace(m, "connections/support.yml", "tickets: {receiver: raw}", "tickets: {schedule: \"0 9 * * *\"}")
+		}, "only meaningful for schedule sources"},
+		{"unknown receiver", func(m fstest.MapFS) {
+			replace(m, "connections/support.yml", "receiver: raw", "receiver: jira")
+		}, "receiver"},
 		{"action with undeclared tool", func(m fstest.MapFS) {
 			replace(m, "scenarios/classify/scenario.yml", "  autonomy: advise\n", "  autonomy: act\n  action: wiki.edit\n")
 		}, "is not declared in agent.yml"},

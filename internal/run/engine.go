@@ -32,6 +32,12 @@ type Config struct {
 	Logger      *slog.Logger
 	// Telemetry exports run traces; nil switches them off.
 	Telemetry *telemetry.Exporter
+	// ScheduleInterval is how often schedule triggers are checked (1m); negative switches the scheduler off.
+	ScheduleInterval time.Duration
+	// ScheduleLookback is how far back a tick looks for missed occurrences (10m): a restart within it loses nothing.
+	ScheduleLookback time.Duration
+	// ScheduleLocation is the time zone of crons without CRON_TZ (UTC).
+	ScheduleLocation *time.Location
 }
 
 // Engine owns runs: it accepts launches, drives the state machine and resolves waits.
@@ -42,6 +48,9 @@ type Engine struct {
 	log    *slog.Logger
 	tel    *telemetry.Exporter
 	now    func() time.Time
+
+	lookback time.Duration
+	loc      *time.Location
 }
 
 // ErrNoVersion means the agent has no applied package version.
@@ -55,6 +64,15 @@ var ErrFingerprint = errors.New("fingerprint does not match the draft")
 
 // ErrSameApprover means the initiator tried to approve their own irreversible action.
 var ErrSameApprover = errors.New("approver must differ from initiator")
+
+// ErrNoConnection means the agent's current version does not declare the connection.
+var ErrNoConnection = errors.New("connection is not declared in the agent package")
+
+// ErrNotEnabled means the connection does not run the scenario.
+var ErrNotEnabled = errors.New("scenario is not enabled in the connection")
+
+// ErrPaused means the connection is paused and takes no launches.
+var ErrPaused = errors.New("connection is paused")
 
 // errStale means another worker already moved the run; the job has nothing to do.
 var errStale = errors.New("run state changed concurrently")
@@ -76,12 +94,35 @@ func New(pool *pgxpool.Pool, drv driver.Set, cfg Config) (*Engine, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
-	e := &Engine{pool: pool, drv: drv, log: cfg.Logger, now: time.Now, tel: cfg.Telemetry}
+	if cfg.ScheduleInterval == 0 {
+		cfg.ScheduleInterval = time.Minute
+	}
+	if cfg.ScheduleLookback == 0 {
+		cfg.ScheduleLookback = 10 * time.Minute
+	}
+	if cfg.ScheduleLocation == nil {
+		cfg.ScheduleLocation = time.UTC
+	}
+	e := &Engine{pool: pool, drv: drv, log: cfg.Logger, now: time.Now, tel: cfg.Telemetry,
+		lookback: cfg.ScheduleLookback, loc: cfg.ScheduleLocation}
 
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &stepWorker{e: e})
 	river.AddWorker(workers, &deadlineWorker{e: e})
 	river.AddWorker(workers, &shipWorker{e: e})
+	river.AddWorker(workers, &scheduleWorker{e: e})
+
+	periodic := []*river.PeriodicJob{
+		river.NewPeriodicJob(river.PeriodicInterval(cfg.ShipInterval),
+			func() (river.JobArgs, *river.InsertOpts) { return shipArgs{}, nil },
+			&river.PeriodicJobOpts{RunOnStart: true}),
+	}
+	// Periodic jobs run on the River leader only: with several cores one of them schedules.
+	if cfg.ScheduleInterval > 0 {
+		periodic = append(periodic, river.NewPeriodicJob(river.PeriodicInterval(cfg.ScheduleInterval),
+			func() (river.JobArgs, *river.InsertOpts) { return scheduleArgs{}, nil },
+			&river.PeriodicJobOpts{RunOnStart: true}))
+	}
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues:               map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: cfg.Workers}},
@@ -91,12 +132,8 @@ func New(pool *pgxpool.Pool, drv driver.Set, cfg Config) (*Engine, error) {
 		JobTimeout:           cfg.StepTimeout,
 		RescueStuckJobsAfter: cfg.RescueAfter,
 		// River reports every poll at INFO; the core keeps only its warnings and errors.
-		Logger: slog.New(minLevel{h: cfg.Logger.Handler(), min: slog.LevelWarn}),
-		PeriodicJobs: []*river.PeriodicJob{
-			river.NewPeriodicJob(river.PeriodicInterval(cfg.ShipInterval),
-				func() (river.JobArgs, *river.InsertOpts) { return shipArgs{}, nil },
-				&river.PeriodicJobOpts{RunOnStart: true}),
-		},
+		Logger:       slog.New(minLevel{h: cfg.Logger.Handler(), min: slog.LevelWarn}),
+		PeriodicJobs: periodic,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("river client: %w", err)
@@ -120,10 +157,6 @@ func (e *Engine) Accept(ctx context.Context, agent, scenario string, env Envelop
 	}
 	if env.Trace.TraceID == "" {
 		env.Trace = telemetry.New("")
-	}
-	envJSON, err := json.Marshal(env)
-	if err != nil {
-		return "", false, err
 	}
 	tx, err := e.pool.Begin(ctx)
 	if err != nil {
@@ -149,6 +182,13 @@ func (e *Engine) Accept(ctx context.Context, agent, scenario string, env Envelop
 	}
 	if _, ok := pkg.Scenarios[scenario]; !ok {
 		return "", false, fmt.Errorf("%s has no scenario %q", agent, scenario)
+	}
+	if err := applyConnection(pkg, agent, scenario, &env); err != nil {
+		return "", false, err
+	}
+	envJSON, err := json.Marshal(env)
+	if err != nil {
+		return "", false, err
 	}
 
 	id := uuid.New()
@@ -182,6 +222,100 @@ func (e *Engine) Accept(ctx context.Context, agent, scenario string, env Envelop
 		return "", false, err
 	}
 	return id.String(), false, nil
+}
+
+// applyConnection checks that the connection takes this launch and sets where the answer goes:
+// the shadow channel while in shadow, else the place of the launch, else the connection's reply channel.
+func applyConnection(pkg Package, agent, scenario string, env *Envelope) error {
+	if len(pkg.Connections) == 0 {
+		return nil // package from before connections were stored
+	}
+	c, ok := pkg.Connections[env.Connection]
+	switch {
+	case !ok:
+		return fmt.Errorf("%s/%s: %w", agent, env.Connection, ErrNoConnection)
+	case !c.enables(scenario):
+		return fmt.Errorf("%s/%s, scenario %s: %w", agent, env.Connection, scenario, ErrNotEnabled)
+	case c.Status == ConnPaused:
+		return fmt.Errorf("%s/%s: %w", agent, env.Connection, ErrPaused)
+	case c.Status == ConnShadow:
+		env.Shadow, env.Reply = true, nil
+		if ch := c.Channels["shadow"]; ch != "" {
+			env.Reply = &driver.Target{Channel: ch}
+		}
+	case env.Reply == nil && c.Channels["reply"] != "":
+		env.Reply = &driver.Target{Channel: c.Channels["reply"]}
+	}
+	return nil
+}
+
+// current returns the package of the agent's current version.
+func (e *Engine) current(ctx context.Context, agent string) (Package, error) {
+	var pkg Package
+	var pkgJSON []byte
+	err := e.pool.QueryRow(ctx, `
+		SELECT package FROM agent_versions
+		WHERE agent = $1 AND applied_at IS NOT NULL
+		ORDER BY applied_at DESC LIMIT 1`, agent).Scan(&pkgJSON)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return pkg, fmt.Errorf("%s: %w", agent, ErrNoVersion)
+	}
+	if err != nil {
+		return pkg, err
+	}
+	if err := json.Unmarshal(pkgJSON, &pkg); err != nil {
+		return pkg, fmt.Errorf("decode package: %w", err)
+	}
+	return pkg, nil
+}
+
+// Route lists the scenarios of a connection that a source of the given trigger type launches,
+// with the connection's settings for the source. A source the connection does not bind launches nothing.
+func (e *Engine) Route(ctx context.Context, agent, connection, triggerType, source string) ([]string, ConnectionTrigger, error) {
+	pkg, err := e.current(ctx, agent)
+	if err != nil {
+		return nil, ConnectionTrigger{}, err
+	}
+	c, ok := pkg.Connections[connection]
+	if !ok {
+		return nil, ConnectionTrigger{}, fmt.Errorf("%s/%s: %w", agent, connection, ErrNoConnection)
+	}
+	ct, bound := c.Triggers[source]
+	if !bound {
+		return nil, ct, nil
+	}
+	var out []string
+	for _, s := range c.Scenarios {
+		for _, t := range pkg.Scenarios[s].Triggers {
+			if t.Type == triggerType && t.Source == source {
+				out = append(out, s)
+				break
+			}
+		}
+	}
+	return out, ct, nil
+}
+
+// ErrNotCallable means the scenario has no call trigger.
+var ErrNotCallable = errors.New("scenario has no call trigger")
+
+// CallSource returns the source of the scenario's call trigger. A call names the scenario itself,
+// so the connection does not bind it; Accept still checks that the connection enables the scenario.
+func (e *Engine) CallSource(ctx context.Context, agent, scenario string) (string, error) {
+	pkg, err := e.current(ctx, agent)
+	if err != nil {
+		return "", err
+	}
+	scn, ok := pkg.Scenarios[scenario]
+	if !ok {
+		return "", fmt.Errorf("%s has no scenario %q", agent, scenario)
+	}
+	for _, t := range scn.Triggers {
+		if t.Type == "call" {
+			return t.Source, nil
+		}
+	}
+	return "", fmt.Errorf("%s/%s: %w", agent, scenario, ErrNotCallable)
 }
 
 // idempotencyKey: object, scenario and input fingerprint (STD-0003, spec.idempotency).

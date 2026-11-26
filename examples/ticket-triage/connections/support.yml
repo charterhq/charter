@@ -7,5 +7,7 @@ metadata:
 spec:
   agent: {name: ticket-triage, versions: "^1"}
   scenarios: [classify]
-  channels: {suggestions: support-triage}
+  triggers:
+    tickets: {receiver: raw}
+  channels: {reply: support-triage, shadow: support-triage-shadow}
   status: shadow

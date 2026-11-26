@@ -11,11 +11,13 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	yaml "go.yaml.in/yaml/v3"
 
 	"github.com/charterhq/charter/internal/render"
+	"github.com/charterhq/charter/internal/run"
 	"github.com/charterhq/charter/internal/schema"
 	"github.com/charterhq/charter/schemas"
 )
@@ -125,6 +127,7 @@ func Load(fsys fs.FS) (*Package, Problems) {
 					ps.add(file, "scenario %q is not in the agent", sc)
 				}
 			}
+			checkConnectionTriggers(file, &c, p.Scenarios, &ps)
 			if _, dup := p.Connections[c.Metadata.Name]; dup {
 				ps.add(file, "duplicate connection name %q", c.Metadata.Name)
 			}
@@ -171,6 +174,19 @@ func loadScenario(fsys fs.FS, name string, agentTools map[string][]string, ps *P
 		}
 	}
 
+	for _, t := range sp.Triggers {
+		switch {
+		case t.Type == "schedule" && t.Schedule == "":
+			ps.add(file, "trigger %s: type schedule needs a schedule (cron)", t.Source)
+		case t.Type != "schedule" && t.Schedule != "":
+			ps.add(file, "trigger %s: schedule is only meaningful for type schedule", t.Source)
+		case t.Schedule != "":
+			if _, err := run.ParseSchedule(t.Schedule, time.UTC); err != nil {
+				ps.add(file, "trigger %s: schedule %q: %v", t.Source, t.Schedule, err)
+			}
+		}
+	}
+
 	if sp.Level == 1 && len(sp.Tools) > 0 {
 		ps.add(file, "level 1 is a single model call over prepared input and cannot use tools")
 	}
@@ -208,6 +224,48 @@ func loadScenario(fsys fs.FS, name string, agentTools map[string][]string, ps *P
 	}
 	s.EvalCases = len(cases)
 	return &s
+}
+
+// checkConnectionTriggers: every trigger of a connection binds a source of a scenario the connection
+// enables, receiver goes with event sources, schedule and input with schedule sources.
+func checkConnectionTriggers(file string, c *Connection, scenarios map[string]*Scenario, ps *Problems) {
+	kinds := map[string]map[string]bool{} // source -> trigger types
+	for _, sn := range c.Spec.Scenarios {
+		s := scenarios[sn]
+		if s == nil {
+			continue
+		}
+		for _, t := range s.Spec.Triggers {
+			if kinds[t.Source] == nil {
+				kinds[t.Source] = map[string]bool{}
+			}
+			kinds[t.Source][t.Type] = true
+		}
+	}
+	srcs := make([]string, 0, len(c.Spec.Triggers))
+	for src := range c.Spec.Triggers {
+		srcs = append(srcs, src)
+	}
+	sort.Strings(srcs)
+	for _, src := range srcs {
+		t := c.Spec.Triggers[src]
+		k := kinds[src]
+		if k == nil {
+			ps.add(file, "trigger %q is not a source of the scenarios this connection enables", src)
+			continue
+		}
+		if t.Receiver != "" && !k["event"] {
+			ps.add(file, "trigger %q: receiver is only meaningful for event sources", src)
+		}
+		if (t.Schedule != "" || t.Input != nil) && !k["schedule"] {
+			ps.add(file, "trigger %q: schedule and input are only meaningful for schedule sources", src)
+		}
+		if t.Schedule != "" {
+			if _, err := run.ParseSchedule(t.Schedule, time.UTC); err != nil {
+				ps.add(file, "trigger %q: schedule %q: %v", src, t.Schedule, err)
+			}
+		}
+	}
 }
 
 // readDoc parses a YAML document, validates it against the format schema and decodes it into out.

@@ -34,6 +34,7 @@ func TestPackageToRun(t *testing.T) {
 	eng, _, ch, _ := startEngine(t, pool, model)
 	env := envelope("t-1", "T-1")
 	env.Trigger.Source = "tickets"
+	env.Connection = "support"
 	env.Payload = []byte(`{"ticket":{"id":"T-1","subject":"Refund","body":"charged twice"}}`)
 	id, _, err := eng.Accept(context.Background(), "ticket-triage", "classify", env)
 	if err != nil {
@@ -44,5 +45,8 @@ func TestPackageToRun(t *testing.T) {
 	}
 	if model.CallCount() != 2 || ch.PostCount() != 1 {
 		t.Fatalf("schema retry did not happen: model=%d posts=%d", model.CallCount(), ch.PostCount())
+	}
+	if p, _ := ch.LastPost(); p.Target.Channel != "support-triage-shadow" {
+		t.Fatalf("the connection is in shadow, the answer goes to its shadow channel: %+v", p.Target)
 	}
 }

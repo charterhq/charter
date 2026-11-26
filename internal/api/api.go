@@ -55,6 +55,8 @@ func (s *Server) Handler() http.Handler {
 	r.Group(func(r chi.Router) {
 		r.Use(s.auth)
 		r.Post("/v1/launches/{source}", s.launch)
+		r.Post("/v1/hooks/{agent}/{connection}/{source}", s.hook)
+		r.Post("/v1/agents/{name}/scenarios/{scenario}/call", s.call)
 		r.Get("/v1/runs", s.listRuns)
 		r.Get("/v1/runs/{id}", s.getRun)
 		r.Get("/v1/agents", s.listAgents)
@@ -128,16 +130,23 @@ func (s *Server) launch(w http.ResponseWriter, r *http.Request) {
 		}
 		id, dup, err := s.Engine.Accept(r.Context(), agent, scenario, env)
 		if err != nil {
-			status := http.StatusInternalServerError
-			if errors.Is(err, run.ErrNoVersion) || strings.Contains(err.Error(), "has no scenario") {
-				status = http.StatusNotFound
-			}
-			writeErr(w, status, err.Error())
+			writeErr(w, acceptStatus(err), err.Error())
 			return
 		}
 		out = append(out, accepted{RunID: id, Duplicate: dup})
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"runs": out})
+}
+
+// acceptStatus maps an Accept error to an HTTP status.
+func acceptStatus(err error) int {
+	switch {
+	case errors.Is(err, run.ErrNoVersion), errors.Is(err, run.ErrNoConnection), strings.Contains(err.Error(), "has no scenario"):
+		return http.StatusNotFound
+	case errors.Is(err, run.ErrNotEnabled), errors.Is(err, run.ErrPaused), errors.Is(err, run.ErrNotCallable):
+		return http.StatusConflict
+	}
+	return http.StatusInternalServerError
 }
 
 type normalizer func(r *http.Request, body []byte) ([]run.Envelope, error)

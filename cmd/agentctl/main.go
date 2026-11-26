@@ -29,6 +29,8 @@ const usage = `usage:
   agentctl runs [agent] [status]                     list recent runs
   agentctl run <id>                                  show a run with its steps
   agentctl approve|reject <wait-id> <fingerprint>    answer an approval
+  agentctl call <agent> <scenario> <connection> <input.json|-> [wait]
+                                                     launch a scenario with a call trigger, wait up to 5m for the output
   agentctl version
 
 API commands use CHARTER_URL and CHARTER_TOKEN.`
@@ -92,6 +94,26 @@ func run(args []string) int {
 			break
 		}
 		return apiCall("GET", "/v1/runs/"+args[1], nil)
+	case "call":
+		if len(args) < 5 {
+			break
+		}
+		var in []byte
+		var err error
+		if args[4] == "-" {
+			in, err = io.ReadAll(os.Stdin)
+		} else {
+			in, err = os.ReadFile(args[4])
+		}
+		if err != nil || !json.Valid(in) {
+			fmt.Fprintln(os.Stderr, "input must be a JSON file or - for stdin")
+			return 2
+		}
+		q := "?connection=" + url.QueryEscape(args[3])
+		if len(args) > 5 {
+			q += "&wait=" + url.QueryEscape(args[5])
+		}
+		return apiCall("POST", "/v1/agents/"+args[1]+"/scenarios/"+args[2]+"/call"+q, json.RawMessage(in))
 	case "approve", "reject":
 		if len(args) < 3 {
 			break

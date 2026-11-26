@@ -51,7 +51,9 @@ type Envelope struct {
 	ReceivedAt time.Time  `json:"received_at"`
 	Deadline   *time.Time `json:"deadline,omitempty"`
 	// Reply is where the answer goes when the launch has a place to answer in (a thread, a chat).
-	Reply   *driver.Target  `json:"reply,omitempty"`
+	Reply *driver.Target `json:"reply,omitempty"`
+	// Shadow: the connection is in shadow, the answer goes only to its shadow channel, if any.
+	Shadow  bool            `json:"shadow,omitempty"`
 	Payload json.RawMessage `json:"payload"`
 	// Trace is fixed at accept time; see package telemetry.
 	Trace telemetry.Trace `json:"trace"`
@@ -60,6 +62,8 @@ type Envelope struct {
 type Trigger struct {
 	Type   string `json:"type"` // event, schedule, message, call, input_change
 	Source string `json:"source"`
+	// Schedule is the cron of a schedule trigger in a package scenario; empty in an envelope.
+	Schedule string `json:"schedule,omitempty"`
 }
 
 type Object struct {
@@ -91,6 +95,8 @@ type Scenario struct {
 	Idempotency  string          `json:"idempotency,omitempty"` // update, skip
 	// Template renders the answer for people (Go text/template, see package render).
 	Template string `json:"template,omitempty"`
+	// Triggers are the logical launch sources of the scenario; a connection binds them to real events.
+	Triggers []Trigger `json:"triggers,omitempty"`
 }
 
 // Approval configures step 7.
@@ -104,6 +110,53 @@ type Approval struct {
 // Package is the stored agent package as the engine reads it.
 type Package struct {
 	Scenarios map[string]Scenario `json:"scenarios"`
+	// Connections are the teams that use the agent. A package without connections is from before
+	// connections were stored: launches name any connection and nothing is scheduled.
+	Connections map[string]Connection `json:"connections,omitempty"`
+}
+
+// Connection is a team's use of the agent (STD-0003, section 7) as the engine applies it.
+type Connection struct {
+	Name      string   `json:"name"`
+	Team      string   `json:"team"`
+	Owner     string   `json:"owner"`
+	Scenarios []string `json:"scenarios"`
+	// Status: shadow (answers go to the shadow channel only), active, paused (no launches).
+	Status string `json:"status"`
+	// Triggers bind logical sources of the scenarios to this team's events. A source the connection
+	// does not list does not launch the agent for this team.
+	Triggers map[string]ConnectionTrigger `json:"triggers,omitempty"`
+	// Channels name where the agent writes: "reply" when the launch has no place to answer in,
+	// "shadow" while the connection is in shadow. Values are channel IDs of the channel driver.
+	Channels map[string]string `json:"channels,omitempty"`
+	Params   map[string]any    `json:"params,omitempty"`
+}
+
+// ConnectionTrigger is the team side of a logical source.
+type ConnectionTrigger struct {
+	// Receiver is the webhook format of an event source: alertmanager or raw (default).
+	Receiver string `json:"receiver,omitempty"`
+	// Schedule overrides the cron of a schedule source.
+	Schedule string `json:"schedule,omitempty"`
+	// Input is the run input of a schedule source.
+	Input json.RawMessage `json:"input,omitempty"`
+}
+
+// Connection statuses.
+const (
+	ConnShadow = "shadow"
+	ConnActive = "active"
+	ConnPaused = "paused"
+)
+
+// enables reports whether the connection runs the scenario.
+func (c Connection) enables(scenario string) bool {
+	for _, s := range c.Scenarios {
+		if s == scenario {
+			return true
+		}
+	}
+	return false
 }
 
 // Duration is a time.Duration encoded as a Go duration string ("1h30m").

@@ -199,14 +199,25 @@ type Connection struct {
 }
 
 type ConnectionSpec struct {
-	Agent     ConnectionAgent `json:"agent"`
-	Scenarios []string        `json:"scenarios"`
-	Triggers  map[string]any  `json:"triggers,omitempty"`
-	Channels  map[string]any  `json:"channels,omitempty"`
-	Params    map[string]any  `json:"params,omitempty"`
-	Knowledge []any           `json:"knowledge,omitempty"`
-	Budgets   map[string]any  `json:"budgets,omitempty"`
-	Status    string          `json:"status"`
+	Agent     ConnectionAgent              `json:"agent"`
+	Scenarios []string                     `json:"scenarios"`
+	Triggers  map[string]ConnectionTrigger `json:"triggers,omitempty"`
+	Channels  map[string]string            `json:"channels,omitempty"`
+	Params    map[string]any               `json:"params,omitempty"`
+	Knowledge []any                        `json:"knowledge,omitempty"`
+	Budgets   map[string]any               `json:"budgets,omitempty"`
+	Status    string                       `json:"status"`
+}
+
+// ConnectionTrigger binds a logical source of the scenarios to this team's events.
+// Keys the core does not know stay for drivers that read the package.
+type ConnectionTrigger struct {
+	// Receiver is the webhook format of an event source: alertmanager or raw (default).
+	Receiver string `json:"receiver,omitempty"`
+	// Schedule overrides the cron of a schedule source.
+	Schedule string `json:"schedule,omitempty"`
+	// Input is the run input of a schedule source.
+	Input map[string]any `json:"input,omitempty"`
 }
 
 type ConnectionAgent struct {

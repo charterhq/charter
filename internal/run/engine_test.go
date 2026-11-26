@@ -18,7 +18,8 @@ import (
 func newDB(t *testing.T) *pgxpool.Pool { return testdb.New(t) }
 
 func testConfig() run.Config {
-	return run.Config{FetchPollInterval: 50 * time.Millisecond, FetchCooldown: 10 * time.Millisecond, ShipInterval: 200 * time.Millisecond}
+	return run.Config{FetchPollInterval: 50 * time.Millisecond, FetchCooldown: 10 * time.Millisecond, ShipInterval: 200 * time.Millisecond,
+		ScheduleInterval: -1} // tests tick by hand
 }
 
 func applyAgent(t *testing.T, pool *pgxpool.Pool, scn run.Scenario) {

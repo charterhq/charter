@@ -12,9 +12,10 @@ import (
 // Stored is what the registry keeps for an agent version: the card as written
 // and the scenarios in the form the run engine executes.
 type Stored struct {
-	Agent     Agent                   `json:"agent"`
-	Persona   string                  `json:"persona"`
-	Scenarios map[string]run.Scenario `json:"scenarios"`
+	Agent       Agent                     `json:"agent"`
+	Persona     string                    `json:"persona"`
+	Scenarios   map[string]run.Scenario   `json:"scenarios"`
+	Connections map[string]run.Connection `json:"connections,omitempty"`
 }
 
 // Compile turns a validated package into the stored form.
@@ -37,6 +38,9 @@ func Compile(p *Package) (json.RawMessage, error) {
 			Idempotency:  s.Spec.Idempotency.OnRepeat,
 			Template:     s.Template,
 		}
+		for _, t := range s.Spec.Triggers {
+			rs.Triggers = append(rs.Triggers, run.Trigger{Type: t.Type, Source: t.Source, Schedule: t.Schedule})
+		}
 		if a := s.Spec.Approval; a != nil && a.Required {
 			ra := &run.Approval{OnTimeout: a.OnTimeout, DistinctApprover: a.DistinctApprover}
 			if a.Timeout != "" {
@@ -49,6 +53,28 @@ func Compile(p *Package) (json.RawMessage, error) {
 			rs.Approval = ra
 		}
 		st.Scenarios[name] = rs
+	}
+	for name, c := range p.Connections {
+		rc := run.Connection{Name: name, Team: c.Metadata.Team, Owner: c.Metadata.Owner, Scenarios: c.Spec.Scenarios,
+			Status: c.Spec.Status, Channels: c.Spec.Channels, Params: c.Spec.Params}
+		for src, t := range c.Spec.Triggers {
+			if rc.Triggers == nil {
+				rc.Triggers = map[string]run.ConnectionTrigger{}
+			}
+			ct := run.ConnectionTrigger{Receiver: t.Receiver, Schedule: t.Schedule}
+			if t.Input != nil {
+				b, err := json.Marshal(t.Input)
+				if err != nil {
+					return nil, fmt.Errorf("connection %s, trigger %s: input: %w", name, src, err)
+				}
+				ct.Input = b
+			}
+			rc.Triggers[src] = ct
+		}
+		if st.Connections == nil {
+			st.Connections = map[string]run.Connection{}
+		}
+		st.Connections[name] = rc
 	}
 	return json.Marshal(st)
 }
