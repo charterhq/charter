@@ -58,8 +58,19 @@ spec:
 | `event` | `POST /v1/hooks/{agent}/{connection}/{source}` with a bearer token, body in the receiver format |
 | `schedule` | the core: every minute the River leader launches occurrences due in the last 10 minutes, each once (`CHARTER_SCHEDULE_TZ` for crons without `CRON_TZ`, UTC by default) |
 | `call` | `POST /v1/agents/{agent}/scenarios/{scenario}/call?connection=&wait=` or `agentctl call` |
+| `message` | a channel driver: `POST /v1/conversations/{agent}/{connection}/{source}` with `conversation`, `message_id`, `author`, `text`, `reply`; or `agentctl say` |
 
 The answer goes to the thread the launch came from, else to `channels.reply`.
+
+## Conversations
+
+A message is a run like any other. The core keeps the conversation (`conversation_messages`), answers messages of one conversation in order and, with `memory: thread`, puts earlier turns into the input:
+
+```json
+{"conversation": "...", "message": {"author": "...", "text": "..."}, "history": [{"role": "user|agent", "author": "...", "text": "...", "at": "..."}]}
+```
+
+`users` on a message source in the connection lists who may talk to the agent; others get 403 and the driver tells them. The core knows no chat: a driver maps its threads to conversation IDs.
 
 ## Development
 

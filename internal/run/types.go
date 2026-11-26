@@ -53,8 +53,10 @@ type Envelope struct {
 	// Reply is where the answer goes when the launch has a place to answer in (a thread, a chat).
 	Reply *driver.Target `json:"reply,omitempty"`
 	// Shadow: the connection is in shadow, the answer goes only to its shadow channel, if any.
-	Shadow  bool            `json:"shadow,omitempty"`
-	Payload json.RawMessage `json:"payload"`
+	Shadow bool `json:"shadow,omitempty"`
+	// Conversation is set for message triggers: the message and the conversation it belongs to.
+	Conversation *Conversation   `json:"conversation,omitempty"`
+	Payload      json.RawMessage `json:"payload"`
 	// Trace is fixed at accept time; see package telemetry.
 	Trace telemetry.Trace `json:"trace"`
 }
@@ -64,6 +66,16 @@ type Trigger struct {
 	Source string `json:"source"`
 	// Schedule is the cron of a schedule trigger in a package scenario; empty in an envelope.
 	Schedule string `json:"schedule,omitempty"`
+}
+
+// Conversation is a message in a conversation, as a channel driver hands it to the core.
+// The core does not know channels: a conversation ID is whatever the driver keeps stable,
+// a Mattermost thread, a chat, a ticket.
+type Conversation struct {
+	ID        string `json:"id"`
+	MessageID string `json:"message_id"`
+	Author    string `json:"author"`
+	Text      string `json:"text"`
 }
 
 type Object struct {
@@ -97,6 +109,8 @@ type Scenario struct {
 	Template string `json:"template,omitempty"`
 	// Triggers are the logical launch sources of the scenario; a connection binds them to real events.
 	Triggers []Trigger `json:"triggers,omitempty"`
+	// Memory is the agent's memory kind: none, thread (conversation history goes into the input), object.
+	Memory string `json:"memory,omitempty"`
 }
 
 // Approval configures step 7.
@@ -140,6 +154,8 @@ type ConnectionTrigger struct {
 	Schedule string `json:"schedule,omitempty"`
 	// Input is the run input of a schedule source.
 	Input json.RawMessage `json:"input,omitempty"`
+	// Users may talk to the agent through a message source; empty means anyone the channel lets in.
+	Users []string `json:"users,omitempty"`
 }
 
 // Connection statuses.

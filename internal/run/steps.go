@@ -123,6 +123,10 @@ func (w *stepWorker) Work(ctx context.Context, job *river.Job[stepArgs]) error {
 	}
 	started := e.now()
 	out, stepErr := e.step(ctx, r)
+	var snooze *river.JobSnoozeError
+	if errors.As(stepErr, &snooze) {
+		return stepErr // waiting its turn is not a failed attempt
+	}
 	if stepErr != nil {
 		if job.Attempt < job.MaxAttempts || r.State == Recording {
 			return stepErr
@@ -162,14 +166,21 @@ func (e *Engine) step(ctx context.Context, r runRow) (outcome, error) {
 	case Filtering:
 		return e.filter(ctx, r)
 	case Preparing:
+		input := r.Env.Payload
+		if r.Env.Conversation != nil {
+			var err error
+			if input, err = e.conversationInput(ctx, r); err != nil {
+				return outcome{}, err
+			}
+		}
 		if len(r.Scn.InputSchema) > 0 {
-			if problems := schema.Check(r.Scn.InputSchema, r.Env.Payload); len(problems) > 0 {
+			if problems := schema.Check(r.Scn.InputSchema, input); len(problems) > 0 {
 				return outcome{next: Recording, status: StatusFailed,
 					errText: "input does not match input_schema: " + strings.Join(problems, "; ")}, nil
 			}
 		}
 		return outcome{next: Modeling, apply: func(ctx context.Context, tx pgx.Tx) error {
-			_, err := tx.Exec(ctx, `UPDATE runs SET input = $2 WHERE id = $1`, r.ID, []byte(r.Env.Payload))
+			_, err := tx.Exec(ctx, `UPDATE runs SET input = $2 WHERE id = $1`, r.ID, []byte(input))
 			return err
 		}}, nil
 	case Modeling:
@@ -192,13 +203,19 @@ func (e *Engine) step(ctx context.Context, r runRow) (outcome, error) {
 	case Executing:
 		return e.execute(ctx, r)
 	case Responding:
-		if r.Env.Shadow && r.Env.Reply == nil {
-			return outcome{next: Recording}, nil // shadow without a shadow channel: journal only
+		m := e.answer(r)
+		out := outcome{next: Recording}
+		if r.Env.Conversation != nil {
+			text := answerText(m.Text, r.Output)
+			out.apply = func(ctx context.Context, tx pgx.Tx) error { return saveAgentMessage(ctx, tx, r, text) }
 		}
-		if _, err := e.drv.Channel.Post(ctx, e.answer(r)); err != nil {
+		if r.Env.Shadow && r.Env.Reply == nil {
+			return out, nil // shadow without a shadow channel: journal only
+		}
+		if _, err := e.drv.Channel.Post(ctx, m); err != nil {
 			return outcome{}, err
 		}
-		return outcome{next: Recording}, nil
+		return out, nil
 	case Recording:
 		return e.record(ctx, r)
 	}

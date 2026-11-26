@@ -56,6 +56,7 @@ func (s *Server) Handler() http.Handler {
 		r.Use(s.auth)
 		r.Post("/v1/launches/{source}", s.launch)
 		r.Post("/v1/hooks/{agent}/{connection}/{source}", s.hook)
+		r.Post("/v1/conversations/{agent}/{connection}/{source}", s.converse)
 		r.Post("/v1/agents/{name}/scenarios/{scenario}/call", s.call)
 		r.Get("/v1/runs", s.listRuns)
 		r.Get("/v1/runs/{id}", s.getRun)

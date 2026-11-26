@@ -96,3 +96,34 @@ func TestLaunchChecksConnection(t *testing.T) {
 		t.Fatalf("paused connection: %d %v", code, out)
 	}
 }
+
+func TestConversationAccess(t *testing.T) {
+	e := setup(t, advise, `{"reply":"hi"}`)
+	talk := run.Scenario{Name: "talk", Level: 2, ModelClass: "c", Autonomy: "advise", Memory: "thread",
+		Triggers: []run.Trigger{{Type: "message", Source: "chat"}}}
+	republish(t, e, run.Package{
+		Scenarios: map[string]run.Scenario{"talk": talk},
+		Connections: map[string]run.Connection{"sre": {Name: "sre", Scenarios: []string{"talk"}, Status: run.ConnActive,
+			Triggers: map[string]run.ConnectionTrigger{"chat": {Users: []string{"e.azimov"}}}}},
+	})
+	msg := func(author string) map[string]any {
+		return map[string]any{"conversation": "th1", "message_id": "p-" + author, "author": author, "text": "hello",
+			"reply": map[string]string{"channel": "c1", "thread": "th1"}}
+	}
+	if code, out := call(t, e, "POST", "/v1/conversations/alert-triage/sre/chat", "kestra-token", msg("stranger")); code != http.StatusForbidden {
+		t.Fatalf("stranger: %d %v", code, out)
+	}
+	code, out := call(t, e, "POST", "/v1/conversations/alert-triage/sre/chat", "kestra-token", msg("e.azimov"))
+	if code != http.StatusAccepted {
+		t.Fatalf("allowed author: %d %v", code, out)
+	}
+	if status := waitStatus(t, e, out["run_id"].(string)); status != run.StatusOK {
+		t.Fatalf("status %s", status)
+	}
+	if p, _ := e.ch.LastPost(); p.Target.Thread != "th1" {
+		t.Fatalf("answer target: %+v", p.Target)
+	}
+	if code, _ := call(t, e, "POST", "/v1/conversations/alert-triage/sre/chat", "kestra-token", map[string]any{"text": "x"}); code != http.StatusBadRequest {
+		t.Fatalf("missing fields: %d", code)
+	}
+}

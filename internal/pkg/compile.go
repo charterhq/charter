@@ -37,6 +37,7 @@ func Compile(p *Package) (json.RawMessage, error) {
 			Action:       s.Spec.Action,
 			Idempotency:  s.Spec.Idempotency.OnRepeat,
 			Template:     s.Template,
+			Memory:       p.Agent.Spec.Memory,
 		}
 		for _, t := range s.Spec.Triggers {
 			rs.Triggers = append(rs.Triggers, run.Trigger{Type: t.Type, Source: t.Source, Schedule: t.Schedule})
@@ -61,7 +62,7 @@ func Compile(p *Package) (json.RawMessage, error) {
 			if rc.Triggers == nil {
 				rc.Triggers = map[string]run.ConnectionTrigger{}
 			}
-			ct := run.ConnectionTrigger{Receiver: t.Receiver, Schedule: t.Schedule}
+			ct := run.ConnectionTrigger{Receiver: t.Receiver, Schedule: t.Schedule, Users: t.Users}
 			if t.Input != nil {
 				b, err := json.Marshal(t.Input)
 				if err != nil {

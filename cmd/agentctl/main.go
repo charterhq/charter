@@ -29,6 +29,8 @@ const usage = `usage:
   agentctl runs [agent] [status]                     list recent runs
   agentctl run <id>                                  show a run with its steps
   agentctl approve|reject <wait-id> <fingerprint>    answer an approval
+  agentctl say <agent> <connection> <source> <conversation> <text...>
+                                                     send a message to an agent as the token's caller
   agentctl call <agent> <scenario> <connection> <input.json|-> [wait]
                                                      launch a scenario with a call trigger, wait up to 5m for the output
   agentctl version
@@ -94,6 +96,17 @@ func run(args []string) int {
 			break
 		}
 		return apiCall("GET", "/v1/runs/"+args[1], nil)
+	case "say":
+		if len(args) < 6 {
+			break
+		}
+		who := os.Getenv("USER")
+		if who == "" {
+			who = "agentctl"
+		}
+		return apiCall("POST", "/v1/conversations/"+args[1]+"/"+args[2]+"/"+args[3], map[string]string{
+			"conversation": args[4], "message_id": fmt.Sprintf("agentctl-%d", time.Now().UnixNano()),
+			"author": who, "text": strings.Join(args[5:], " ")})
 	case "call":
 		if len(args) < 5 {
 			break

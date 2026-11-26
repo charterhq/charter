@@ -229,7 +229,8 @@ func loadScenario(fsys fs.FS, name string, agentTools map[string][]string, ps *P
 // checkConnectionTriggers: every trigger of a connection binds a source of a scenario the connection
 // enables, receiver goes with event sources, schedule and input with schedule sources.
 func checkConnectionTriggers(file string, c *Connection, scenarios map[string]*Scenario, ps *Problems) {
-	kinds := map[string]map[string]bool{} // source -> trigger types
+	kinds := map[string]map[string]bool{}      // source -> trigger types
+	byType := map[string]map[string][]string{} // source -> type -> scenarios
 	for _, sn := range c.Spec.Scenarios {
 		s := scenarios[sn]
 		if s == nil {
@@ -238,8 +239,10 @@ func checkConnectionTriggers(file string, c *Connection, scenarios map[string]*S
 		for _, t := range s.Spec.Triggers {
 			if kinds[t.Source] == nil {
 				kinds[t.Source] = map[string]bool{}
+				byType[t.Source] = map[string][]string{}
 			}
 			kinds[t.Source][t.Type] = true
+			byType[t.Source][t.Type] = append(byType[t.Source][t.Type], sn)
 		}
 	}
 	srcs := make([]string, 0, len(c.Spec.Triggers))
@@ -264,6 +267,12 @@ func checkConnectionTriggers(file string, c *Connection, scenarios map[string]*S
 			if _, err := run.ParseSchedule(t.Schedule, time.UTC); err != nil {
 				ps.add(file, "trigger %q: schedule %q: %v", src, t.Schedule, err)
 			}
+		}
+		if len(t.Users) > 0 && !k["message"] {
+			ps.add(file, "trigger %q: users is only meaningful for message sources", src)
+		}
+		if k["message"] && len(byType[src]["message"]) > 1 {
+			ps.add(file, "trigger %q: a message source must start one scenario, it starts %v", src, byType[src]["message"])
 		}
 	}
 }

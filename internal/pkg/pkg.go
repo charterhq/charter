@@ -218,6 +218,8 @@ type ConnectionTrigger struct {
 	Schedule string `json:"schedule,omitempty"`
 	// Input is the run input of a schedule source.
 	Input map[string]any `json:"input,omitempty"`
+	// Users may talk to the agent through a message source; empty means anyone the channel lets in.
+	Users []string `json:"users,omitempty"`
 }
 
 type ConnectionAgent struct {

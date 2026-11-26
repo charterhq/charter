@@ -215,6 +215,11 @@ func (e *Engine) Accept(ctx context.Context, agent, scenario string, env Envelop
 			return existing.String(), true, err
 		}
 	}
+	if env.Conversation != nil {
+		if err := saveUserMessage(ctx, tx, agent, env, id); err != nil {
+			return "", false, err
+		}
+	}
 	if _, err := e.client.InsertTx(ctx, tx, stepArgs{RunID: id.String()}, nil); err != nil {
 		return "", false, err
 	}
@@ -319,8 +324,9 @@ func (e *Engine) CallSource(ctx context.Context, agent, scenario string) (string
 }
 
 // idempotencyKey: object, scenario and input fingerprint (STD-0003, spec.idempotency).
+// Messages are deduplicated by message ID only: the same words twice in a conversation are two turns.
 func idempotencyKey(agent, scenario string, env Envelope) string {
-	if env.Object.Key == "" {
+	if env.Object.Key == "" || env.Conversation != nil {
 		return ""
 	}
 	h := sha256.Sum256(env.Payload)

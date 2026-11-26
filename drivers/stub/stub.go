@@ -18,11 +18,14 @@ type Model struct {
 	// Block, when set, makes the first call wait until the context is cancelled.
 	Block bool
 	Calls int
+	// Inputs are the step inputs in call order.
+	Inputs []json.RawMessage
 }
 
 func (m *Model) Run(ctx context.Context, req driver.StepRequest) (driver.StepResult, error) {
 	m.mu.Lock()
 	m.Calls++
+	m.Inputs = append(m.Inputs, req.Input)
 	n := m.Calls
 	block := m.Block && n == 1
 	out := "{}"
@@ -38,6 +41,16 @@ func (m *Model) Run(ctx context.Context, req driver.StepRequest) (driver.StepRes
 		Output: json.RawMessage(out),
 		Usage:  driver.Usage{InputTokens: 100, OutputTokens: 20, Model: "stub", Provider: "stub", FinishReason: "stop"},
 	}, nil
+}
+
+// InputAt returns the input of the i-th call (0-based).
+func (m *Model) InputAt(i int) json.RawMessage {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if i >= len(m.Inputs) {
+		return nil
+	}
+	return m.Inputs[i]
 }
 
 // CallCount returns how many times the model was called.
