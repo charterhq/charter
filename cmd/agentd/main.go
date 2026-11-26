@@ -64,7 +64,8 @@ func runMain(log *slog.Logger, args []string) error {
 		if err := db.Migrate(ctx, pool); err != nil {
 			return err
 		}
-		p, problems := pkg.Load(os.DirFS(args[1]))
+		fsys := os.DirFS(args[1])
+		p, problems := pkg.Load(fsys)
 		if problems != nil {
 			return fmt.Errorf("package has problems:\n%w", problems)
 		}
@@ -72,8 +73,12 @@ func runMain(log *slog.Logger, args []string) error {
 		if err != nil {
 			return err
 		}
+		src, err := pkg.SourceDigest(fsys)
+		if err != nil {
+			return err
+		}
 		m := p.Agent.Metadata
-		id, err := registry.Apply(ctx, pool, registry.Agent{Name: m.Name, Team: m.Team, Owner: m.Owner}, m.Version, sha, stored)
+		id, err := registry.ApplySource(ctx, pool, registry.Agent{Name: m.Name, Team: m.Team, Owner: m.Owner}, m.Version, sha, src, stored)
 		if err != nil {
 			return err
 		}

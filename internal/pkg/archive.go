@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing/fstest"
 )
@@ -113,3 +116,38 @@ func Unpack(r io.Reader) (fs.FS, error) {
 }
 
 func readFile(p string) ([]byte, error) { return os.ReadFile(p) }
+
+// SourceDigest is the SHA-256 of the package files as Pack would take them: paths and contents in
+// path order. It identifies a version independently of how a core compiles it.
+func SourceDigest(fsys fs.FS) (string, error) {
+	var files []string
+	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if p != "." && strings.HasPrefix(d.Name(), ".") {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.Type().IsRegular() && !strings.HasPrefix(d.Name(), ".") {
+			files = append(files, p)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	sort.Strings(files)
+	h := sha256.New()
+	for _, f := range files {
+		b, err := fs.ReadFile(fsys, f)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(h, "%s\x00%d\x00", f, len(b))
+		h.Write(b)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}

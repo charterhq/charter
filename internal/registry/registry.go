@@ -21,9 +21,19 @@ type Agent struct {
 	Owner string
 }
 
-// Apply stores a package version and makes it current for new runs.
-// Runs already started keep the version they started on.
+// Apply stores a compiled package version without its source digest (tests, old callers).
 func Apply(ctx context.Context, pool *pgxpool.Pool, a Agent, version, gitSHA string, pkg json.RawMessage) (string, error) {
+	return ApplySource(ctx, pool, a, version, gitSHA, "", pkg)
+}
+
+// ApplySource stores a package version and makes it current for new runs. Runs already started keep
+// the version they started on.
+//
+// A version is immutable by its source: the same version with the same source files is accepted
+// again, and its compiled form is replaced when a newer core compiles it differently. Other source
+// under the same version is refused. A version stored before source digests existed accepts its
+// first digest once; from then on it is checked.
+func ApplySource(ctx context.Context, pool *pgxpool.Pool, a Agent, version, gitSHA, sourceDigest string, pkg json.RawMessage) (string, error) {
 	var canon any
 	if err := json.Unmarshal(pkg, &canon); err != nil {
 		return "", fmt.Errorf("package is not JSON: %w", err)
@@ -45,11 +55,18 @@ func Apply(ctx context.Context, pool *pgxpool.Pool, a Agent, version, gitSHA str
 	}
 	id := uuid.New()
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO agent_versions (id, agent, version, git_sha, digest, package, applied_at)
-		VALUES ($1, $2, $3, $4, $5, $6, now())
-		ON CONFLICT (agent, version) DO UPDATE SET applied_at = now()
-		WHERE agent_versions.digest = excluded.digest
-		RETURNING id`, id, a.Name, version, gitSHA, hex.EncodeToString(sum[:]), b).Scan(&id); err != nil {
+		INSERT INTO agent_versions (id, agent, version, git_sha, digest, source_digest, package, applied_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+		ON CONFLICT (agent, version) DO UPDATE
+		SET applied_at = now(), package = excluded.package, digest = excluded.digest,
+		    source_digest = CASE WHEN excluded.source_digest <> '' THEN excluded.source_digest ELSE agent_versions.source_digest END
+		WHERE CASE
+		    WHEN excluded.source_digest <> '' AND agent_versions.source_digest <> ''
+		        THEN agent_versions.source_digest = excluded.source_digest
+		    WHEN excluded.source_digest <> '' THEN true -- stored before source digests: takes the first one
+		    ELSE agent_versions.digest = excluded.digest
+		END
+		RETURNING id`, id, a.Name, version, gitSHA, hex.EncodeToString(sum[:]), sourceDigest, b).Scan(&id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// A version is immutable: the same number with other content would silently keep the old package.
 			return "", fmt.Errorf("%w: %s %s", ErrVersionChanged, a.Name, version)

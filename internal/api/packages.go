@@ -34,12 +34,17 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
+	src, err := pkg.SourceDigest(fsys)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	sha := r.URL.Query().Get("git_sha")
 	if sha == "" {
 		sha = "api"
 	}
 	m := p.Agent.Metadata
-	id, err := registry.Apply(r.Context(), s.Pool, registry.Agent{Name: m.Name, Team: m.Team, Owner: m.Owner}, m.Version, sha, stored)
+	id, err := registry.ApplySource(r.Context(), s.Pool, registry.Agent{Name: m.Name, Team: m.Team, Owner: m.Owner}, m.Version, sha, src, stored)
 	if errors.Is(err, registry.ErrVersionChanged) {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
