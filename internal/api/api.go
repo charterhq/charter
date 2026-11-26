@@ -35,7 +35,9 @@ type Server struct {
 	Tokens map[string]string
 	// ApprovalSecret verifies chat button callbacks.
 	ApprovalSecret []byte
-	Log            *slog.Logger
+	// Publishers are the callers allowed to publish packages (CI of the package repositories).
+	Publishers map[string]bool
+	Log        *slog.Logger
 }
 
 // Handler returns the router.
@@ -56,6 +58,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/v1/runs", s.listRuns)
 		r.Get("/v1/runs/{id}", s.getRun)
 		r.Get("/v1/agents", s.listAgents)
+		r.Post("/v1/packages", s.publish)
 		r.Post("/v1/agents/{name}/suspend", s.setSwitch(true))
 		r.Post("/v1/agents/{name}/resume", s.setSwitch(false))
 	})

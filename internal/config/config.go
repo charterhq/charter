@@ -57,6 +57,17 @@ func Tokens() (map[string]string, error) {
 	return out, nil
 }
 
+// Publishers reads CHARTER_PUBLISHERS: API caller names, separated by commas, allowed to publish packages.
+func Publishers() map[string]bool {
+	out := map[string]bool{}
+	for _, n := range strings.Split(Env("CHARTER_PUBLISHERS"), ",") {
+		if n = strings.TrimSpace(n); n != "" {
+			out[n] = true
+		}
+	}
+	return out
+}
+
 // MCPKeys reads gateway keys of agents from CHARTER_MCP_KEYS: "agent:key" pairs separated by commas
 // or newlines; agent "*" is the key for agents without their own.
 func MCPKeys() (map[string]string, error) {

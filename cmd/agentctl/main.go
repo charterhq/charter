@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ var version = "dev"
 
 const usage = `usage:
   agentctl validate <package-dir> [--json]          check an agent package
+  agentctl publish <package-dir> [git-sha]           validate and publish a package to the core
   agentctl render <package-dir> <scenario> <output.json> [--failed error]
                                                      show the message a run would post
   agentctl suspend <agent> <reason> [connection]     switch an agent off
@@ -47,6 +49,15 @@ func run(args []string) int {
 			break
 		}
 		return validate(args[1], len(args) > 2 && args[2] == "--json")
+	case "publish":
+		if len(args) < 2 {
+			break
+		}
+		sha := ""
+		if len(args) > 2 {
+			sha = args[2]
+		}
+		return publish(args[1], sha)
 	case "render":
 		if len(args) < 4 {
 			break
@@ -187,5 +198,42 @@ func renderCmd(dir, scenario, outputFile, failed string) int {
 		return 1
 	}
 	fmt.Println(msg)
+	return 0
+}
+
+// publish checks the package locally first (same loader as the core), then sends it as tar.gz.
+func publish(dir, sha string) int {
+	if _, problems := pkg.Load(os.DirFS(dir)); problems != nil {
+		fmt.Fprintf(os.Stderr, "package has problems:\n%v\n", problems)
+		return 1
+	}
+	b, err := pkg.Pack(dir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	base, token := strings.TrimRight(os.Getenv("CHARTER_URL"), "/"), os.Getenv("CHARTER_TOKEN")
+	if base == "" || token == "" {
+		fmt.Fprintln(os.Stderr, "CHARTER_URL and CHARTER_TOKEN must be set")
+		return 2
+	}
+	req, err := http.NewRequest(http.MethodPost, base+"/v1/packages?git_sha="+url.QueryEscape(sha), bytes.NewReader(b))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/gzip")
+	resp, err := (&http.Client{Timeout: 60 * time.Second}).Do(req)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(resp.Body)
+	fmt.Println(strings.TrimSpace(string(raw)))
+	if resp.StatusCode >= 300 {
+		return 1
+	}
 	return 0
 }

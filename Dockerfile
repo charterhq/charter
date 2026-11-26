@@ -6,6 +6,11 @@ COPY . .
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/ ./cmd/...
 
+# CLI for CI jobs (agentctl validate, publish): has a busybox shell, which CI runners need.
+FROM gcr.io/distroless/static-debian12:debug-nonroot AS cli
+COPY --from=build /out/agentctl /usr/local/bin/
+ENTRYPOINT []
+
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/agentd /out/agentctl /usr/local/bin/
 USER nonroot
