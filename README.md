@@ -72,6 +72,8 @@ A message is a run like any other. The core keeps the conversation (`conversatio
 
 `users` on a message source in the connection lists who may talk to the agent; others get 403 and the driver tells them. The core knows no chat: a driver maps its threads to conversation IDs.
 
+An act scenario in a conversation names the output field with the action arguments, `spec.action_input: draft`. A turn without the field is an answer; a turn with it shows the answer with Approve and Reject buttons bound to the draft fingerprint. A newer message in the conversation replaces a pending draft. After the decision the template block `done` or `rejected` renders the outcome, with `.action.input`, `.action.result` and `.action.by`.
+
 The Mattermost driver listens as each agent bot named in `spec.identities` (`system: mattermost`) with a token in `CHARTER_MM_BOTS`, over a websocket pinged every 30 seconds and reconnected when a pong is late. A post reaches the agent when it names the bot as `@name` (not `@channel` or `@here`) or comes in a direct message; a thread is a conversation, in direct messages the channel is. `channels` on the message source binds a connection to channel IDs. The agent answers as its own bot.
 
 ## Development

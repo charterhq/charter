@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charterhq/charter/internal/driver"
@@ -37,11 +38,17 @@ type Config struct {
 	// RefreshInterval is how often the listeners are re-read from the core (1m).
 	RefreshInterval time.Duration
 	Log             *slog.Logger
+	// Labels of the approval card.
+	ApproveLabel, RejectLabel, ApprovalNote string
+	// TypingInterval is how often "typing" is repeated while an agent works on a message (4s);
+	// TypingLimit stops it if no answer comes (10m).
+	TypingInterval, TypingLimit time.Duration
 }
 
 // Channel is a driver.Channel backed by Mattermost.
 type Channel struct {
-	cfg Config
+	cfg    Config
+	typing sync.Map // channel/thread -> context.CancelFunc
 }
 
 // New returns a Mattermost channel driver.
@@ -54,6 +61,21 @@ func New(cfg Config) *Channel {
 	}
 	if cfg.RefreshInterval == 0 {
 		cfg.RefreshInterval = time.Minute
+	}
+	if cfg.ApproveLabel == "" {
+		cfg.ApproveLabel = "Approve"
+	}
+	if cfg.RejectLabel == "" {
+		cfg.RejectLabel = "Reject"
+	}
+	if cfg.ApprovalNote == "" {
+		cfg.ApprovalNote = "Approve runs the action with exactly the parameters above. Deadline:"
+	}
+	if cfg.TypingInterval == 0 {
+		cfg.TypingInterval = 4 * time.Second
+	}
+	if cfg.TypingLimit == 0 {
+		cfg.TypingLimit = 10 * time.Minute
 	}
 	if cfg.Refusal == "" {
 		cfg.Refusal = "this agent does not take requests from you here."
@@ -77,6 +99,7 @@ func (c *Channel) Post(ctx context.Context, m driver.Message) (driver.MessageRef
 		return driver.MessageRef{}, err
 	}
 	p.Message = render(m)
+	c.stopTyping(m.Target)
 	return c.createAs(ctx, c.token(m.Identities), p)
 }
 
@@ -94,9 +117,15 @@ func (c *Channel) AskApproval(ctx context.Context, r driver.ApprovalRequest) (dr
 	if err != nil {
 		return driver.MessageRef{}, err
 	}
-	params, _ := json.MarshalIndent(json.RawMessage(r.Action), "", "  ")
-	p.Message = fmt.Sprintf("**%s** asks for approval. The action runs with exactly these parameters:\n```json\n%s\n```\nDeadline: %s",
-		r.Agent, params, r.Deadline.UTC().Format("2006-01-02 15:04 UTC"))
+	deadline := r.Deadline.UTC().Format("2006-01-02 15:04 UTC")
+	if r.Text != "" {
+		// the agent's template shows the draft; the fingerprint binds the buttons to exactly that draft
+		p.Message = r.Text
+	} else {
+		params, _ := json.MarshalIndent(json.RawMessage(r.Action), "", "  ")
+		p.Message = fmt.Sprintf("**%s** asks for approval. The action runs with exactly these parameters:\n```json\n%s\n```",
+			r.Agent, params)
+	}
 	button := func(id, name, decision string) map[string]any {
 		return map[string]any{
 			"id": id, "name": name,
@@ -110,8 +139,10 @@ func (c *Channel) AskApproval(ctx context.Context, r driver.ApprovalRequest) (dr
 		}
 	}
 	p.Props = map[string]any{"attachments": []map[string]any{{
-		"actions": []map[string]any{button("approve", "Approve", "approve"), button("reject", "Reject", "reject")},
+		"text":    c.cfg.ApprovalNote + " " + deadline,
+		"actions": []map[string]any{button("approve", c.cfg.ApproveLabel, "approve"), button("reject", c.cfg.RejectLabel, "reject")},
 	}}}
+	c.stopTyping(r.Target)
 	return c.createAs(ctx, c.token(r.Identities), p)
 }
 

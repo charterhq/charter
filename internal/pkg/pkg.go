@@ -130,24 +130,27 @@ type Scenario struct {
 }
 
 type ScenarioSpec struct {
-	Triggers     []Trigger      `json:"triggers"`
-	Level        int            `json:"level"`
-	InputSchema  string         `json:"input_schema"`
-	OutputSchema string         `json:"output_schema"`
-	InputsFrom   []InputFrom    `json:"inputs_from,omitempty"`
-	Instructions string         `json:"instructions"`
-	Tools        []string       `json:"tools,omitempty"`
-	Autonomy     string         `json:"autonomy"`
-	Action       string         `json:"action,omitempty"`
-	Approval     *Approval      `json:"approval,omitempty"`
-	Checks       []string       `json:"checks,omitempty"`
-	Idempotency  Idempotency    `json:"idempotency"`
-	Artifacts    []Artifact     `json:"artifacts,omitempty"`
-	OnFailure    string         `json:"on_failure"`
-	Eval         string         `json:"eval"`
-	Feedback     *Feedback      `json:"feedback,omitempty"`
-	Params       map[string]any `json:"params,omitempty"`
-	Response     *Response      `json:"response,omitempty"`
+	Triggers     []Trigger   `json:"triggers"`
+	Level        int         `json:"level"`
+	InputSchema  string      `json:"input_schema"`
+	OutputSchema string      `json:"output_schema"`
+	InputsFrom   []InputFrom `json:"inputs_from,omitempty"`
+	Instructions string      `json:"instructions"`
+	Tools        []string    `json:"tools,omitempty"`
+	Autonomy     string      `json:"autonomy"`
+	Action       string      `json:"action,omitempty"`
+	// ActionInput names the output field that holds the action arguments; without the field in the
+	// output there is no action, only the answer. Empty means the whole output is the arguments.
+	ActionInput string         `json:"action_input,omitempty"`
+	Approval    *Approval      `json:"approval,omitempty"`
+	Checks      []string       `json:"checks,omitempty"`
+	Idempotency Idempotency    `json:"idempotency"`
+	Artifacts   []Artifact     `json:"artifacts,omitempty"`
+	OnFailure   string         `json:"on_failure"`
+	Eval        string         `json:"eval"`
+	Feedback    *Feedback      `json:"feedback,omitempty"`
+	Params      map[string]any `json:"params,omitempty"`
+	Response    *Response      `json:"response,omitempty"`
 }
 
 // Response says how the answer is shown to people.

@@ -35,6 +35,7 @@ func Compile(p *Package) (json.RawMessage, error) {
 			MaxToolCalls: p.Agent.Spec.Budgets.MaxToolCalls,
 			Autonomy:     s.Spec.Autonomy,
 			Action:       s.Spec.Action,
+			ActionInput:  s.Spec.ActionInput,
 			Idempotency:  s.Spec.Idempotency.OnRepeat,
 			Template:     s.Template,
 			Memory:       p.Agent.Spec.Memory,

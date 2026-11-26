@@ -214,6 +214,13 @@ func loadScenario(fsys fs.FS, name string, agentTools map[string][]string, ps *P
 			ps.add(file, "action %q: function %q of tool %q is not allowed in agent.yml", sp.Action, fn, ref)
 		}
 	}
+	if sp.ActionInput != "" {
+		if sp.Action == "" {
+			ps.add(file, "action_input is only meaningful with spec.action")
+		} else if !schemaHasProperty(s.OutputSchema, sp.ActionInput) {
+			ps.add(file, "action_input %q is not a property of the output schema", sp.ActionInput)
+		}
+	}
 	if sp.Approval != nil && sp.Approval.Required && sp.Autonomy != "act" {
 		ps.add(file, "approval is only meaningful for autonomy act")
 	}
@@ -275,6 +282,18 @@ func checkConnectionTriggers(file string, c *Connection, scenarios map[string]*S
 			ps.add(file, "trigger %q: a message source must start one scenario, it starts %v", src, byType[src]["message"])
 		}
 	}
+}
+
+// schemaHasProperty reports whether an object schema declares the property at the top level.
+func schemaHasProperty(schema json.RawMessage, name string) bool {
+	var s struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if json.Unmarshal(schema, &s) != nil {
+		return false
+	}
+	_, ok := s.Properties[name]
+	return ok
 }
 
 // readDoc parses a YAML document, validates it against the format schema and decodes it into out.

@@ -22,6 +22,7 @@ type fakeMM struct {
 	posts     []post
 	reactions []string
 	dials     int
+	typing    int
 	drop      chan struct{} // closing a connection forces a reconnect
 	deaf      bool          // the first connection never reads: pings get no pong, like a half-open socket
 }
@@ -48,6 +49,11 @@ func (f *fakeMM) handler(t *testing.T) http.Handler {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"id":"new"}`))
 	})
+	mux.HandleFunc("POST /api/v4/users/{id}/typing", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.typing++
+		f.mu.Unlock()
+	})
 	mux.HandleFunc("POST /api/v4/reactions", func(w http.ResponseWriter, r *http.Request) {
 		var rc map[string]string
 		_ = json.NewDecoder(r.Body).Decode(&rc)
@@ -68,9 +74,9 @@ func (f *fakeMM) handler(t *testing.T) http.Handler {
 		defer func() { _ = c.CloseNow() }()
 		f.mu.Lock()
 		f.dials++
-		drop := f.drop
+		drop, first := f.drop, f.dials == 1
 		f.mu.Unlock()
-		if f.deaf && f.dials == 1 {
+		if f.deaf && first {
 			<-r.Context().Done() // holds the connection open and silent
 			return
 		}
@@ -251,4 +257,37 @@ func TestHalfOpenSocketReconnects(t *testing.T) {
 	waitUntil(t, "second dial", func() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.dials >= 2 })
 	f.events <- posted("O", wsPost{ID: "p1", UserID: "u-alice", ChannelID: "c1", Message: "@sre-manager жив?"})
 	waitUntil(t, "message after reconnect", func() bool { return inbox.count() == 1 })
+}
+
+func TestTypingUntilAnswer(t *testing.T) {
+	f := &fakeMM{events: make(chan string, 4), drop: make(chan struct{})}
+	srv := httptest.NewServer(f.handler(t))
+	defer srv.Close()
+	c := New(Config{URL: srv.URL, Token: "core-token", Bots: map[string]string{"sre-manager": "bot-token"},
+		RefreshInterval: time.Hour, TypingInterval: 30 * time.Millisecond})
+	inbox := &fakeInbox{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = c.Receive(ctx, inbox) }()
+	f.events <- posted("O", wsPost{ID: "p1", UserID: "u-alice", ChannelID: "c1", Message: "@sre-manager думай"})
+	waitUntil(t, "typing repeats", func() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.typing >= 3 })
+	_, err := c.AskApproval(ctx, driver.ApprovalRequest{Message: driver.Message{Agent: "sre-manager",
+		Target: driver.Target{Channel: "c1", Thread: "p1"}, Text: "Черновик: заголовок X",
+		Identities: map[string]string{System: "sre-manager"}}, WaitID: "w1", Fingerprint: "fp", Deadline: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	n := f.typing
+	last := f.posts[len(f.posts)-1]
+	f.mu.Unlock()
+	if last.Message != "Черновик: заголовок X" || last.RootID != "p1" {
+		t.Fatalf("approval post: %+v", last)
+	}
+	time.Sleep(150 * time.Millisecond)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.typing > n+1 {
+		t.Fatalf("typing must stop after the answer: %d -> %d", n, f.typing)
+	}
 }

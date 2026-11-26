@@ -271,6 +271,41 @@ func (b *bot) handle(ctx context.Context, data []byte) {
 		b.c.log().Warn("mattermost: message not accepted", "account", b.account, "agent", l.Agent, "post", p.ID, "err", err)
 	case !dup:
 		b.react(ctx, p.ID, "eyes")
+		b.c.startTyping(ctx, b, p.ChannelID, thread)
+	}
+}
+
+func typingKey(channel, thread string) string { return channel + "/" + thread }
+
+// startTyping shows "typing" in the conversation until the agent answers there or the limit passes.
+// Mattermost drops the indicator after a few seconds, so it is repeated.
+func (c *Channel) startTyping(ctx context.Context, b *bot, channel, thread string) {
+	tctx, cancel := context.WithTimeout(ctx, c.cfg.TypingLimit)
+	if old, loaded := c.typing.Swap(typingKey(channel, thread), context.CancelFunc(cancel)); loaded {
+		old.(context.CancelFunc)()
+	}
+	body, _ := json.Marshal(map[string]string{"channel_id": channel, "parent_id": thread})
+	go func() {
+		defer cancel()
+		t := time.NewTicker(c.cfg.TypingInterval)
+		defer t.Stop()
+		for {
+			if err := c.do(tctx, b.token, http.MethodPost, "/api/v4/users/"+b.me.ID+"/typing", body, nil); err != nil && tctx.Err() == nil {
+				c.log().Debug("mattermost: typing", "account", b.account, "err", err)
+			}
+			select {
+			case <-tctx.Done():
+				return
+			case <-t.C:
+			}
+		}
+	}()
+}
+
+// stopTyping ends "typing" where an answer is being posted.
+func (c *Channel) stopTyping(t driver.Target) {
+	if v, ok := c.typing.LoadAndDelete(typingKey(t.Channel, t.Thread)); ok {
+		v.(context.CancelFunc)()
 	}
 }
 

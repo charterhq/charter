@@ -138,6 +138,12 @@ func TestProblems(t *testing.T) {
 		{"users on event source", func(m fstest.MapFS) {
 			replace(m, "connections/support.yml", "receiver: raw", "receiver: raw, users: [jane]")
 		}, "users and channels are only meaningful for message sources"},
+		{"action_input without action", func(m fstest.MapFS) {
+			replace(m, "scenarios/classify/scenario.yml", "  autonomy: advise\n", "  autonomy: advise\n  action_input: draft\n")
+		}, "action_input is only meaningful with spec.action"},
+		{"action_input not in output schema", func(m fstest.MapFS) {
+			replace(m, "scenarios/classify/scenario.yml", "  autonomy: advise\n", "  autonomy: act\n  action: tracker.add_comment\n  action_input: draft\n")
+		}, `action_input "draft" is not a property`},
 		{"action with undeclared tool", func(m fstest.MapFS) {
 			replace(m, "scenarios/classify/scenario.yml", "  autonomy: advise\n", "  autonomy: act\n  action: wiki.edit\n")
 		}, "is not declared in agent.yml"},

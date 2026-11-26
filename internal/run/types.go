@@ -103,8 +103,10 @@ type Scenario struct {
 	MaxToolCalls int             `json:"max_tool_calls,omitempty"`
 	Autonomy     string          `json:"autonomy"` // advise, act
 	Action       string          `json:"action,omitempty"`
-	Approval     *Approval       `json:"approval,omitempty"`
-	Idempotency  string          `json:"idempotency,omitempty"` // update, skip
+	// ActionInput is the output field with the action arguments; empty means the whole output.
+	ActionInput string    `json:"action_input,omitempty"`
+	Approval    *Approval `json:"approval,omitempty"`
+	Idempotency string    `json:"idempotency,omitempty"` // update, skip
 	// Template renders the answer for people (Go text/template, see package render).
 	Template string `json:"template,omitempty"`
 	// Triggers are the logical launch sources of the scenario; a connection binds them to real events.

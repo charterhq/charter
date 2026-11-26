@@ -53,6 +53,9 @@ func (e *Engine) conversationInput(ctx context.Context, r runRow) (json.RawMessa
 		r.ID).Scan(&mySeq); err != nil {
 		return nil, err
 	}
+	if err := e.supersede(ctx, r, mySeq); err != nil {
+		return nil, err
+	}
 	var busy bool
 	if err := e.pool.QueryRow(ctx, `
 		SELECT EXISTS (SELECT 1 FROM conversation_messages m JOIN runs x ON x.id = m.run_id

@@ -5,9 +5,12 @@
 //	.output   the validated model output (decoded JSON)
 //	.input    the run input (decoded JSON)
 //	.run      id, short_id, agent, version, scenario, connection, autonomy, status, error, seconds
+//	.action   for act scenarios after the action: input, result, state (done, rejected), by
 //
 // A template may define a block named "failed": it renders the message for a run that
-// did not produce a valid answer (status failed or invalid).
+// did not produce a valid answer (status failed or invalid). With an approval, the main template is
+// shown with the buttons; block "done" renders the outcome after the action, block "rejected" after
+// a rejection or an expired approval.
 package render
 
 import (
@@ -21,8 +24,12 @@ import (
 	"unicode/utf8"
 )
 
-// FailedBlock is the template block for a run without a valid answer.
-const FailedBlock = "failed"
+// Template blocks.
+const (
+	FailedBlock   = "failed"   // a run without a valid answer
+	DoneBlock     = "done"     // after an approved action ran
+	RejectedBlock = "rejected" // after a rejection or an expired approval
+)
 
 // Run is the run metadata a template sees as .run.
 type Run struct {
@@ -49,7 +56,29 @@ func Output(text string, run Run, input, output json.RawMessage) (string, error)
 	if err != nil {
 		return "", err
 	}
-	return exec(t, "", run, input, output)
+	return exec(t, "", run, input, output, nil)
+}
+
+// OutputWith renders the answer with .action set (an act scenario without approval).
+func OutputWith(text string, run Run, input, output, action json.RawMessage) (string, error) {
+	t, err := Parse("response", text)
+	if err != nil {
+		return "", err
+	}
+	return exec(t, "", run, input, output, action)
+}
+
+// Block renders a named block with .action. ok is false when the template has no such block.
+func Block(text, block string, run Run, input, output, action json.RawMessage) (msg string, ok bool, err error) {
+	t, err := Parse("response", text)
+	if err != nil {
+		return "", false, err
+	}
+	if t.Lookup(block) == nil {
+		return "", false, nil
+	}
+	msg, err = exec(t, block, run, input, output, action)
+	return msg, err == nil, err
 }
 
 // Failed renders the failure message. ok is false when the template has no "failed" block.
@@ -61,12 +90,12 @@ func Failed(text string, run Run, input json.RawMessage) (msg string, ok bool, e
 	if t.Lookup(FailedBlock) == nil {
 		return "", false, nil
 	}
-	msg, err = exec(t, FailedBlock, run, input, nil)
+	msg, err = exec(t, FailedBlock, run, input, nil, nil)
 	return msg, err == nil, err
 }
 
-func exec(t *template.Template, block string, run Run, input, output json.RawMessage) (string, error) {
-	data := map[string]any{"run": toMap(run), "input": decode(input), "output": decode(output)}
+func exec(t *template.Template, block string, run Run, input, output, action json.RawMessage) (string, error) {
+	data := map[string]any{"run": toMap(run), "input": decode(input), "output": decode(output), "action": decode(action)}
 	var buf bytes.Buffer
 	var err error
 	if block == "" {

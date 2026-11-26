@@ -203,10 +203,16 @@ func (e *Engine) step(ctx context.Context, r runRow) (outcome, error) {
 		switch {
 		case r.Env.Shadow:
 			return outcome{next: Responding}, nil // a connection in shadow never acts, people see the draft
+		case r.Scn.Autonomy == "act" && r.Scn.Action != "":
+			if _, ok := actionArgs(r); !ok {
+				return outcome{next: Responding}, nil // no draft in the output: an answer, no action
+			}
+			if r.Scn.Approval != nil {
+				return outcome{next: Approving}, nil
+			}
+			return outcome{next: Executing}, nil
 		case r.Scn.Approval != nil:
 			return outcome{next: Approving}, nil
-		case r.Scn.Autonomy == "act" && r.Scn.Action != "":
-			return outcome{next: Executing}, nil
 		default:
 			return outcome{next: Responding}, nil
 		}
@@ -216,6 +222,11 @@ func (e *Engine) step(ctx context.Context, r runRow) (outcome, error) {
 		return e.execute(ctx, r)
 	case Responding:
 		m := e.answer(r)
+		if om, ok, err := e.outcomeMessage(ctx, r); err != nil {
+			return outcome{}, err
+		} else if ok {
+			m = om
+		}
 		out := outcome{next: Recording}
 		if r.Env.Conversation != nil {
 			text := answerText(m.Text, r.Output)
@@ -328,7 +339,8 @@ func (e *Engine) approve(ctx context.Context, r runRow) (outcome, error) {
 		WHERE w.run_id = $1 AND w.state = 'open'`, r.ID).Scan(&waitID, &draftID, &fp, &deadline)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		fp, err = Fingerprint(r.Output)
+		args, _ := actionArgs(r)
+		fp, err = Fingerprint(args)
 		if err != nil {
 			return outcome{}, err
 		}
@@ -347,8 +359,14 @@ func (e *Engine) approve(ctx context.Context, r runRow) (outcome, error) {
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
 		if _, err := tx.Exec(ctx, `INSERT INTO drafts (id, run_id, action, fingerprint, initiator) VALUES ($1, $2, $3, $4, $5)`,
-			draftID, r.ID, []byte(r.Output), fp, r.Env.Initiator.ID); err != nil {
+			draftID, r.ID, []byte(args), fp, r.Env.Initiator.ID); err != nil {
 			return outcome{}, err
+		}
+		if r.Env.Conversation != nil {
+			// the draft is the agent's turn: the next message is read against it
+			if err := saveAgentMessage(ctx, tx, r, answerText(e.answer(r).Text, r.Output)); err != nil {
+				return outcome{}, err
+			}
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO waits (id, run_id, kind, draft_id, deadline, on_timeout, state)
@@ -365,10 +383,14 @@ func (e *Engine) approve(ctx context.Context, r runRow) (outcome, error) {
 	case err != nil:
 		return outcome{}, err
 	}
+	var action json.RawMessage
+	if err := e.pool.QueryRow(ctx, `SELECT action FROM drafts WHERE id = $1`, draftID).Scan(&action); err != nil {
+		return outcome{}, err
+	}
 	if _, err := e.drv.Channel.AskApproval(ctx, driver.ApprovalRequest{
 		Message: driver.Message{RunID: r.ID.String(), Agent: r.Agent, Connection: r.Connection, ObjectKey: r.ObjectKey, Identities: r.Identities,
-			Target: r.target()},
-		WaitID: waitID.String(), DraftID: draftID.String(), Fingerprint: fp, Action: r.Output, Deadline: deadline,
+			Target: r.target(), Text: e.answer(r).Text},
+		WaitID: waitID.String(), DraftID: draftID.String(), Fingerprint: fp, Action: action, Deadline: deadline,
 	}); err != nil {
 		return outcome{}, err
 	}
@@ -376,7 +398,16 @@ func (e *Engine) approve(ctx context.Context, r runRow) (outcome, error) {
 }
 
 func (e *Engine) execute(ctx context.Context, r runRow) (outcome, error) {
-	res, err := e.drv.Tools.Call(ctx, r.Agent, r.Scn.Action, r.Output)
+	// with an approval the action runs with the approved draft, exactly; without one, with the output
+	d, hasDraft, err := e.loadDraft(ctx, r.ID)
+	if err != nil {
+		return outcome{}, err
+	}
+	args := d.Action
+	if !hasDraft {
+		args, _ = actionArgs(r)
+	}
+	res, err := e.drv.Tools.Call(ctx, r.Agent, r.Scn.Action, args)
 	if err != nil {
 		return outcome{}, err
 	}
@@ -388,6 +419,17 @@ func (e *Engine) execute(ctx context.Context, r runRow) (outcome, error) {
 		ref.Ref, _ = Fingerprint(res)
 	}
 	return outcome{next: Responding, apply: func(ctx context.Context, tx pgx.Tx) error {
+		if hasDraft {
+			if _, err := tx.Exec(ctx, `UPDATE drafts SET result = $2 WHERE id = $1`, d.ID, []byte(res)); err != nil {
+				return err
+			}
+		} else {
+			fp, _ := Fingerprint(args)
+			if _, err := tx.Exec(ctx, `INSERT INTO drafts (id, run_id, action, fingerprint, initiator, result)
+				VALUES ($1, $2, $3, $4, $5, $6)`, uuid.New(), r.ID, []byte(args), fp, r.Env.Initiator.ID, []byte(res)); err != nil {
+				return err
+			}
+		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO artifacts (id, run_id, agent, object_key, system, ref) VALUES ($1, $2, $3, $4, $5, $6)
 			ON CONFLICT DO NOTHING`, uuid.New(), r.ID, r.Agent, r.ObjectKey, "tool:"+r.Scn.Action, ref.Ref)

@@ -138,6 +138,11 @@
             "act"
           ]
         },
+        "action_input": {
+          "type": "string",
+          "minLength": 1,
+          "description": "act: the output field with the action arguments; no field in the output, no action"
+        },
         "action": {
           "type": "string",
           "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$",

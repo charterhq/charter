@@ -156,7 +156,9 @@ func Drivers(log *slog.Logger) (driver.Set, *clickhouse.Journal, error) {
 		}
 		set.Channel = mattermost.New(mattermost.Config{URL: url, Token: token, CallbackURL: Env("CHARTER_PUBLIC_URL"),
 			Secret: []byte(secret), DefaultChannel: Env("CHARTER_MM_DEFAULT_CHANNEL"),
-			Bots: bots, Refusal: Env("CHARTER_MM_REFUSAL"), Log: log})
+			Bots: bots, Refusal: Env("CHARTER_MM_REFUSAL"), Log: log,
+			ApproveLabel: Env("CHARTER_MM_APPROVE_LABEL"), RejectLabel: Env("CHARTER_MM_REJECT_LABEL"),
+			ApprovalNote: Env("CHARTER_MM_APPROVAL_NOTE")})
 	} else {
 		log.Warn("channel driver is a stub: CHARTER_MM_URL or CHARTER_MM_TOKEN is not set")
 		set.Channel = &stub.Channel{}
