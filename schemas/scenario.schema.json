@@ -138,6 +138,11 @@
             "act"
           ]
         },
+        "action": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$",
+          "description": "act: the tool function \"ref.function\" that performs the action, called with the validated output as arguments"
+        },
         "approval": {
           "type": "object",
           "additionalProperties": false,

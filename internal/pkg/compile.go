@@ -33,6 +33,7 @@ func Compile(p *Package) (json.RawMessage, error) {
 			MaxSteps:     p.Agent.Spec.Budgets.MaxSteps,
 			MaxToolCalls: p.Agent.Spec.Budgets.MaxToolCalls,
 			Autonomy:     s.Spec.Autonomy,
+			Action:       s.Spec.Action,
 			Idempotency:  s.Spec.Idempotency.OnRepeat,
 			Template:     s.Template,
 		}

@@ -138,6 +138,7 @@ type ScenarioSpec struct {
 	Instructions string         `json:"instructions"`
 	Tools        []string       `json:"tools,omitempty"`
 	Autonomy     string         `json:"autonomy"`
+	Action       string         `json:"action,omitempty"`
 	Approval     *Approval      `json:"approval,omitempty"`
 	Checks       []string       `json:"checks,omitempty"`
 	Idempotency  Idempotency    `json:"idempotency"`

@@ -108,6 +108,15 @@ func TestProblems(t *testing.T) {
 		{"approval on advise", func(m fstest.MapFS) {
 			replace(m, "scenarios/classify/scenario.yml", "  autonomy: advise\n", "  autonomy: advise\n  approval: {required: true}\n")
 		}, "approval is only meaningful"},
+		{"act without action", func(m fstest.MapFS) {
+			replace(m, "scenarios/classify/scenario.yml", "  autonomy: advise\n", "  autonomy: act\n")
+		}, "autonomy act needs spec.action"},
+		{"action on advise", func(m fstest.MapFS) {
+			replace(m, "scenarios/classify/scenario.yml", "  autonomy: advise\n", "  autonomy: advise\n  action: tracker.add_comment\n")
+		}, "only meaningful for autonomy act"},
+		{"action with undeclared tool", func(m fstest.MapFS) {
+			replace(m, "scenarios/classify/scenario.yml", "  autonomy: advise\n", "  autonomy: act\n  action: wiki.edit\n")
+		}, "is not declared in agent.yml"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

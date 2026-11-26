@@ -185,6 +185,19 @@ func loadScenario(fsys fs.FS, name string, agentTools map[string][]string, ps *P
 			ps.add(file, "function %q of tool %q is not allowed in agent.yml", fn, ref)
 		}
 	}
+	switch {
+	case sp.Autonomy == "act" && sp.Action == "":
+		ps.add(file, "autonomy act needs spec.action: the tool function that performs the action")
+	case sp.Autonomy != "act" && sp.Action != "":
+		ps.add(file, "spec.action is only meaningful for autonomy act")
+	case sp.Action != "":
+		ref, fn, _ := strings.Cut(sp.Action, ".")
+		if fns, ok := agentTools[ref]; !ok {
+			ps.add(file, "action %q: tool %q is not declared in agent.yml spec.tools", sp.Action, ref)
+		} else if len(fns) > 0 && !slices.Contains(fns, fn) {
+			ps.add(file, "action %q: function %q of tool %q is not allowed in agent.yml", sp.Action, fn, ref)
+		}
+	}
 	if sp.Approval != nil && sp.Approval.Required && sp.Autonomy != "act" {
 		ps.add(file, "approval is only meaningful for autonomy act")
 	}
