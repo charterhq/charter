@@ -79,6 +79,9 @@ func (s *Server) auth(next http.Handler) http.Handler {
 				return
 			}
 		}
+		if s.Log != nil {
+			s.Log.Warn("unknown API token", "path", r.URL.Path, "remote", r.RemoteAddr, "forwarded_for", r.Header.Get("X-Forwarded-For"))
+		}
 		writeErr(w, http.StatusUnauthorized, "unknown token")
 	})
 }

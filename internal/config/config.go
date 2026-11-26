@@ -44,6 +44,13 @@ func Tokens() (map[string]string, error) {
 		if !ok || name == "" || len(tok) < 16 {
 			return nil, fmt.Errorf("CHARTER_API_TOKENS: each entry is name:token, token at least 16 characters")
 		}
+		// two entries glued by a lost separator read as one token with a colon inside: fail at start, not with 401 later
+		if strings.ContainsAny(tok, ": \t\r") {
+			return nil, fmt.Errorf("CHARTER_API_TOKENS: token of %q contains a colon or whitespace, entries must be separated by commas or newlines", name)
+		}
+		if _, dup := out[tok]; dup {
+			return nil, fmt.Errorf("CHARTER_API_TOKENS: token of %q is used twice", name)
+		}
 		out[tok] = name
 	}
 	return out, nil
