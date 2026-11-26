@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -26,6 +27,16 @@ type Config struct {
 	// DefaultChannel is used when a message has no target channel.
 	DefaultChannel string
 	HTTP           *http.Client
+	// Bots are agent bot tokens by account (spec.identities, system mattermost). An agent with its
+	// own bot posts and listens as it; others post as Token.
+	Bots map[string]string
+	// Refusal is the answer to an author the connection does not let talk to the agent.
+	Refusal string
+	// PingInterval is how often the websocket is pinged; a missing pong within it reconnects (30s).
+	PingInterval time.Duration
+	// RefreshInterval is how often the listeners are re-read from the core (1m).
+	RefreshInterval time.Duration
+	Log             *slog.Logger
 }
 
 // Channel is a driver.Channel backed by Mattermost.
@@ -37,6 +48,15 @@ type Channel struct {
 func New(cfg Config) *Channel {
 	if cfg.HTTP == nil {
 		cfg.HTTP = &http.Client{Timeout: 30 * time.Second}
+	}
+	if cfg.PingInterval == 0 {
+		cfg.PingInterval = 30 * time.Second
+	}
+	if cfg.RefreshInterval == 0 {
+		cfg.RefreshInterval = time.Minute
+	}
+	if cfg.Refusal == "" {
+		cfg.Refusal = "this agent does not take requests from you here."
 	}
 	cfg.URL = strings.TrimRight(cfg.URL, "/")
 	cfg.CallbackURL = strings.TrimRight(cfg.CallbackURL, "/")
@@ -57,7 +77,15 @@ func (c *Channel) Post(ctx context.Context, m driver.Message) (driver.MessageRef
 		return driver.MessageRef{}, err
 	}
 	p.Message = render(m)
-	return c.create(ctx, p)
+	return c.createAs(ctx, c.token(m.Identities), p)
+}
+
+// token is the agent's own bot token, or the core's bot token.
+func (c *Channel) token(ids map[string]string) string {
+	if t := c.cfg.Bots[ids[System]]; t != "" {
+		return t
+	}
+	return c.cfg.Token
 }
 
 // AskApproval shows the exact parameters, the deadline and two buttons.
@@ -84,7 +112,7 @@ func (c *Channel) AskApproval(ctx context.Context, r driver.ApprovalRequest) (dr
 	p.Props = map[string]any{"attachments": []map[string]any{{
 		"actions": []map[string]any{button("approve", "Approve", "approve"), button("reject", "Reject", "reject")},
 	}}}
-	return c.create(ctx, p)
+	return c.createAs(ctx, c.token(r.Identities), p)
 }
 
 func (c *Channel) basePost(m driver.Message) (post, error) {
@@ -98,7 +126,7 @@ func (c *Channel) basePost(m driver.Message) (post, error) {
 	return post{ChannelID: ch, RootID: m.Target.Thread}, nil
 }
 
-func (c *Channel) create(ctx context.Context, p post) (driver.MessageRef, error) {
+func (c *Channel) createAs(ctx context.Context, token string, p post) (driver.MessageRef, error) {
 	body, err := json.Marshal(p)
 	if err != nil {
 		return driver.MessageRef{}, err
@@ -107,7 +135,7 @@ func (c *Channel) create(ctx context.Context, p post) (driver.MessageRef, error)
 	if err != nil {
 		return driver.MessageRef{}, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.cfg.HTTP.Do(req)
 	if err != nil {

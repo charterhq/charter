@@ -220,6 +220,8 @@ type ConnectionTrigger struct {
 	Input map[string]any `json:"input,omitempty"`
 	// Users may talk to the agent through a message source; empty means anyone the channel lets in.
 	Users []string `json:"users,omitempty"`
+	// Channels limit a message source to places of the channel driver (channel IDs); empty means everywhere.
+	Channels []string `json:"channels,omitempty"`
 }
 
 type ConnectionAgent struct {

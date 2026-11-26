@@ -268,8 +268,8 @@ func checkConnectionTriggers(file string, c *Connection, scenarios map[string]*S
 				ps.add(file, "trigger %q: schedule %q: %v", src, t.Schedule, err)
 			}
 		}
-		if len(t.Users) > 0 && !k["message"] {
-			ps.add(file, "trigger %q: users is only meaningful for message sources", src)
+		if (len(t.Users) > 0 || len(t.Channels) > 0) && !k["message"] {
+			ps.add(file, "trigger %q: users and channels are only meaningful for message sources", src)
 		}
 		if k["message"] && len(byType[src]["message"]) > 1 {
 			ps.add(file, "trigger %q: a message source must start one scenario, it starts %v", src, byType[src]["message"])

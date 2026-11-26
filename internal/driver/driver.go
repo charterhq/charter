@@ -7,6 +7,7 @@ package driver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 )
 
@@ -87,6 +88,9 @@ type Message struct {
 	Target     Target
 	Text       string
 	Data       json.RawMessage
+	// Identities are the agent's accounts by system (spec.identities): a chat driver posts as the
+	// agent's own bot when it has its credentials.
+	Identities map[string]string
 }
 
 // MessageRef points at a delivered message.
@@ -109,6 +113,39 @@ type ApprovalRequest struct {
 type Channel interface {
 	Post(ctx context.Context, m Message) (MessageRef, error)
 	AskApproval(ctx context.Context, r ApprovalRequest) (MessageRef, error)
+}
+
+// Incoming is a message a channel driver received for an agent.
+type Incoming struct {
+	Agent, Connection, Source string
+	Conversation              string
+	MessageID                 string
+	Author                    string
+	Text                      string
+	Reply                     Target
+}
+
+// Listener says that an agent hears messages through an account of a system: a channel driver
+// listens as Account and hands messages to Agent under Connection and Source.
+type Listener struct {
+	System, Account           string
+	Agent, Connection, Source string
+	// Places limits the listener to channels of the driver; empty means every place the account is in.
+	Places []string
+}
+
+// ErrForbidden means the author may not talk to the agent through this connection.
+var ErrForbidden = errors.New("author may not talk to the agent through this connection")
+
+// Inbox is the core side of receiving messages; the run engine implements it.
+type Inbox interface {
+	Listeners(ctx context.Context) ([]Listener, error)
+	Converse(ctx context.Context, m Incoming) (runID string, duplicate bool, err error)
+}
+
+// Receiver is a channel driver that also receives messages. Receive blocks until ctx is done.
+type Receiver interface {
+	Receive(ctx context.Context, inbox Inbox) error
 }
 
 // Journal stores run records.

@@ -16,6 +16,7 @@ import (
 	"github.com/charterhq/charter/internal/api"
 	"github.com/charterhq/charter/internal/config"
 	"github.com/charterhq/charter/internal/db"
+	"github.com/charterhq/charter/internal/driver"
 	"github.com/charterhq/charter/internal/pkg"
 	"github.com/charterhq/charter/internal/registry"
 	"github.com/charterhq/charter/internal/run"
@@ -113,6 +114,14 @@ func runMain(log *slog.Logger, args []string) error {
 		}
 		if err := eng.Start(ctx); err != nil {
 			return err
+		}
+		// A channel driver that receives messages listens as the agents' bots.
+		if rcv, ok := drv.Channel.(driver.Receiver); ok {
+			go func() {
+				if err := rcv.Receive(ctx, eng); err != nil {
+					log.Error("channel driver stopped receiving", "err", err)
+				}
+			}()
 		}
 		tokens, err := config.Tokens()
 		if err != nil {

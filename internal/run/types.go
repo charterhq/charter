@@ -127,6 +127,18 @@ type Package struct {
 	// Connections are the teams that use the agent. A package without connections is from before
 	// connections were stored: launches name any connection and nothing is scheduled.
 	Connections map[string]Connection `json:"connections,omitempty"`
+	// Agent is the card as written; the engine reads its identities.
+	Agent struct {
+		Spec struct {
+			Identities []Identity `json:"identities,omitempty"`
+		} `json:"spec"`
+	} `json:"agent"`
+}
+
+// Identity is an account of the agent in a system.
+type Identity struct {
+	System  string `json:"system"`
+	Account string `json:"account"`
 }
 
 // Connection is a team's use of the agent (STD-0003, section 7) as the engine applies it.
@@ -156,6 +168,8 @@ type ConnectionTrigger struct {
 	Input json.RawMessage `json:"input,omitempty"`
 	// Users may talk to the agent through a message source; empty means anyone the channel lets in.
 	Users []string `json:"users,omitempty"`
+	// Channels limit a message source to places of the channel driver (channel IDs); empty means everywhere.
+	Channels []string `json:"channels,omitempty"`
 }
 
 // Connection statuses.

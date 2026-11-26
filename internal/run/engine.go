@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -299,6 +300,80 @@ func (e *Engine) Route(ctx context.Context, agent, connection, triggerType, sour
 		}
 	}
 	return out, ct, nil
+}
+
+// Listeners lists who hears messages: for every agent identity, the connections that bind a message
+// source of an enabled scenario. Channel drivers listen as these accounts.
+func (e *Engine) Listeners(ctx context.Context) ([]driver.Listener, error) {
+	agents, err := e.currentPackages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []driver.Listener
+	for _, a := range agents {
+		for cname, c := range a.pkg.Connections {
+			if c.Status == ConnPaused {
+				continue
+			}
+			for src, ct := range c.Triggers {
+				if !hasTrigger(a.pkg, c, "message", src) {
+					continue
+				}
+				for _, id := range a.pkg.Agent.Spec.Identities {
+					out = append(out, driver.Listener{System: id.System, Account: id.Account,
+						Agent: a.agent, Connection: cname, Source: src, Places: ct.Channels})
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+func hasTrigger(p Package, c Connection, typ, source string) bool {
+	for _, s := range c.Scenarios {
+		for _, t := range p.Scenarios[s].Triggers {
+			if t.Type == typ && t.Source == source {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Converse takes a message for an agent: the connection must bind the source, the author must be
+// allowed, the source must start exactly one scenario.
+func (e *Engine) Converse(ctx context.Context, m driver.Incoming) (string, bool, error) {
+	scenarios, ct, err := e.Route(ctx, m.Agent, m.Connection, "message", m.Source)
+	if err != nil {
+		return "", false, err
+	}
+	switch {
+	case len(scenarios) == 0:
+		return "", false, fmt.Errorf("%s/%s binds no message source %s: %w", m.Agent, m.Connection, m.Source, ErrNotEnabled)
+	case len(scenarios) > 1:
+		return "", false, fmt.Errorf("message source %s starts several scenarios: %w", m.Source, ErrNotEnabled)
+	case len(ct.Users) > 0 && !slices.Contains(ct.Users, m.Author):
+		return "", false, driver.ErrForbidden
+	}
+	payload, err := json.Marshal(m)
+	if err != nil {
+		return "", false, err
+	}
+	env := Envelope{
+		DeliveryID:   m.MessageID,
+		Trigger:      Trigger{Type: "message", Source: m.Source},
+		Connection:   m.Connection,
+		Object:       Object{Key: m.Conversation},
+		Initiator:    Initiator{Kind: "human", ID: m.Author},
+		Conversation: &Conversation{ID: m.Conversation, MessageID: m.MessageID, Author: m.Author, Text: m.Text},
+		Payload:      payload,
+		Trace:        telemetry.New(""),
+	}
+	if m.Reply.Channel != "" {
+		reply := m.Reply
+		env.Reply = &reply
+	}
+	return e.Accept(ctx, m.Agent, scenarios[0], env)
 }
 
 // ErrNotCallable means the scenario has no call trigger.

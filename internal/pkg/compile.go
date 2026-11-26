@@ -62,7 +62,7 @@ func Compile(p *Package) (json.RawMessage, error) {
 			if rc.Triggers == nil {
 				rc.Triggers = map[string]run.ConnectionTrigger{}
 			}
-			ct := run.ConnectionTrigger{Receiver: t.Receiver, Schedule: t.Schedule, Users: t.Users}
+			ct := run.ConnectionTrigger{Receiver: t.Receiver, Schedule: t.Schedule, Users: t.Users, Channels: t.Channels}
 			if t.Input != nil {
 				b, err := json.Marshal(t.Input)
 				if err != nil {

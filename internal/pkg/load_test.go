@@ -137,7 +137,7 @@ func TestProblems(t *testing.T) {
 		}, "receiver"},
 		{"users on event source", func(m fstest.MapFS) {
 			replace(m, "connections/support.yml", "receiver: raw", "receiver: raw, users: [jane]")
-		}, "users is only meaningful for message sources"},
+		}, "users and channels are only meaningful for message sources"},
 		{"action with undeclared tool", func(m fstest.MapFS) {
 			replace(m, "scenarios/classify/scenario.yml", "  autonomy: advise\n", "  autonomy: act\n  action: wiki.edit\n")
 		}, "is not declared in agent.yml"},

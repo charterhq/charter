@@ -97,3 +97,27 @@ func TestConversationWithoutMemory(t *testing.T) {
 		t.Fatalf("history without memory: %+v", in.History)
 	}
 }
+
+func TestListeners(t *testing.T) {
+	pool := newDB(t)
+	p := run.Package{
+		Scenarios: map[string]run.Scenario{"talk": talk, "triage": withTriggers(advise, alertsTrigger)},
+		Connections: map[string]run.Connection{
+			"sre": {Name: "sre", Scenarios: []string{"talk", "triage"}, Status: run.ConnActive,
+				Triggers: map[string]run.ConnectionTrigger{"chat": {Channels: []string{"c1"}}, "alerts": {}}},
+			"off": {Name: "off", Scenarios: []string{"talk"}, Status: run.ConnPaused,
+				Triggers: map[string]run.ConnectionTrigger{"chat": {}}},
+		},
+	}
+	p.Agent.Spec.Identities = []run.Identity{{System: "mattermost", Account: "sre-manager"}}
+	applyPackage(t, pool, "1.0.0", p)
+	eng, _, _, _ := startEngine(t, pool, &stub.Model{})
+	ls, err := eng.Listeners(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ls) != 1 || ls[0].Account != "sre-manager" || ls[0].Connection != "sre" || ls[0].Source != "chat" ||
+		len(ls[0].Places) != 1 || ls[0].Places[0] != "c1" {
+		t.Fatalf("listeners: %+v", ls)
+	}
+}

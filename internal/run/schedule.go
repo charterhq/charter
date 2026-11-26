@@ -56,39 +56,8 @@ func (e *Engine) Tick(ctx context.Context) ([]Due, error) { return e.TickAt(ctx,
 
 // TickAt is Tick at a given time.
 func (e *Engine) TickAt(ctx context.Context, now time.Time) ([]Due, error) {
-	rows, err := e.pool.Query(ctx, `
-		SELECT DISTINCT ON (agent) agent, package -> 'scenarios', package -> 'connections'
-		FROM agent_versions WHERE applied_at IS NOT NULL
-		ORDER BY agent, applied_at DESC`)
+	agents, err := e.currentPackages(ctx)
 	if err != nil {
-		return nil, err
-	}
-	type current struct {
-		agent string
-		pkg   Package
-	}
-	var agents []current
-	for rows.Next() {
-		var c current
-		var scn, conns []byte
-		if err := rows.Scan(&c.agent, &scn, &conns); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		if err := json.Unmarshal(scn, &c.pkg.Scenarios); err != nil {
-			e.log.Warn("schedule: bad package", "agent", c.agent, "err", err)
-			continue
-		}
-		if len(conns) > 0 && string(conns) != "null" {
-			if err := json.Unmarshal(conns, &c.pkg.Connections); err != nil {
-				e.log.Warn("schedule: bad connections", "agent", c.agent, "err", err)
-				continue
-			}
-		}
-		agents = append(agents, c)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
@@ -121,6 +90,38 @@ func (e *Engine) TickAt(ctx context.Context, now time.Time) ([]Due, error) {
 		}
 	}
 	return out, nil
+}
+
+type current struct {
+	agent string
+	pkg   Package
+}
+
+// currentPackages returns the current version of every agent. A package that does not decode is
+// logged and left out: one broken agent must not stop the others.
+func (e *Engine) currentPackages(ctx context.Context) ([]current, error) {
+	rows, err := e.pool.Query(ctx, `
+		SELECT DISTINCT ON (agent) agent, package
+		FROM agent_versions WHERE applied_at IS NOT NULL
+		ORDER BY agent, applied_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []current
+	for rows.Next() {
+		var c current
+		var raw []byte
+		if err := rows.Scan(&c.agent, &raw); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(raw, &c.pkg); err != nil {
+			e.log.Warn("bad package", "agent", c.agent, "err", err)
+			continue
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 // dueOccurrences lists schedule occurrences in (from, to] for the connections of a package.

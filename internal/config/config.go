@@ -85,6 +85,19 @@ func MCPKeys() (map[string]string, error) {
 	return out, nil
 }
 
+// MMBots reads agent bot tokens from CHARTER_MM_BOTS: "account:token" pairs separated by commas or newlines.
+func MMBots() (map[string]string, error) {
+	out := map[string]string{}
+	for _, pair := range strings.FieldsFunc(Env("CHARTER_MM_BOTS"), func(r rune) bool { return r == ',' || r == '\n' }) {
+		acc, tok, ok := strings.Cut(strings.TrimSpace(pair), ":")
+		if !ok || acc == "" || tok == "" || strings.ContainsAny(tok, ": \t\r") {
+			return nil, fmt.Errorf("CHARTER_MM_BOTS: each entry is account:token, entries separated by commas or newlines")
+		}
+		out[acc] = tok
+	}
+	return out, nil
+}
+
 // modelTools hands the model driver a real tools driver only: with the stub, steps with tools fail loudly.
 func modelTools(t driver.Tools) driver.Tools {
 	if _, isStub := t.(*stub.Tools); isStub {
@@ -137,8 +150,13 @@ func Drivers(log *slog.Logger) (driver.Set, *clickhouse.Journal, error) {
 		if secret == "" {
 			return set, nil, fmt.Errorf("CHARTER_APPROVAL_SECRET is required with the Mattermost driver")
 		}
+		bots, err := MMBots()
+		if err != nil {
+			return set, nil, err
+		}
 		set.Channel = mattermost.New(mattermost.Config{URL: url, Token: token, CallbackURL: Env("CHARTER_PUBLIC_URL"),
-			Secret: []byte(secret), DefaultChannel: Env("CHARTER_MM_DEFAULT_CHANNEL")})
+			Secret: []byte(secret), DefaultChannel: Env("CHARTER_MM_DEFAULT_CHANNEL"),
+			Bots: bots, Refusal: Env("CHARTER_MM_REFUSAL"), Log: log})
 	} else {
 		log.Warn("channel driver is a stub: CHARTER_MM_URL or CHARTER_MM_TOKEN is not set")
 		set.Channel = &stub.Channel{}

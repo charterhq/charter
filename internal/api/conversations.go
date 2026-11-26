@@ -2,16 +2,14 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
-	"slices"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/charterhq/charter/internal/driver"
-	"github.com/charterhq/charter/internal/run"
-	"github.com/charterhq/charter/internal/telemetry"
 )
 
 // message is what a channel driver sends for each message addressed to an agent.
@@ -47,37 +45,19 @@ func (s *Server) converse(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "conversation, message_id, author and text are required")
 		return
 	}
-	scenarios, ct, err := s.Engine.Route(r.Context(), agent, connection, "message", source)
-	if err != nil {
-		writeErr(w, acceptStatus(err), err.Error())
-		return
+	in := driver.Incoming{Agent: agent, Connection: connection, Source: source, Conversation: m.Conversation,
+		MessageID: m.MessageID, Author: m.Author, Text: m.Text}
+	if m.Reply != nil {
+		in.Reply = *m.Reply
 	}
+	id, dup, err := s.Engine.Converse(r.Context(), in)
 	switch {
-	case len(scenarios) == 0:
-		writeErr(w, http.StatusNotFound, "connection "+connection+" binds no message source "+source)
+	case errors.Is(err, driver.ErrForbidden):
+		writeErr(w, http.StatusForbidden, err.Error())
 		return
-	case len(scenarios) > 1:
-		writeErr(w, http.StatusConflict, "message source "+source+" starts several scenarios")
-		return
-	case len(ct.Users) > 0 && !slices.Contains(ct.Users, m.Author):
-		writeErr(w, http.StatusForbidden, "author may not talk to the agent through this connection")
-		return
-	}
-	env := run.Envelope{
-		DeliveryID:   m.MessageID,
-		Trigger:      run.Trigger{Type: "message", Source: source},
-		Connection:   connection,
-		Object:       run.Object{Key: m.Conversation},
-		Initiator:    run.Initiator{Kind: "human", ID: m.Author, Ref: caller(r.Context())},
-		Reply:        m.Reply,
-		Conversation: &run.Conversation{ID: m.Conversation, MessageID: m.MessageID, Author: m.Author, Text: m.Text},
-		Payload:      body,
-		Trace:        telemetry.New(r.Header.Get("traceparent")),
-	}
-	id, dup, err := s.Engine.Accept(r.Context(), agent, scenarios[0], env)
-	if err != nil {
+	case err != nil:
 		writeErr(w, acceptStatus(err), err.Error())
 		return
 	}
-	writeJSON(w, http.StatusAccepted, accepted{Scenario: scenarios[0], RunID: id, Duplicate: dup})
+	writeJSON(w, http.StatusAccepted, map[string]any{"run_id": id, "duplicate": dup})
 }

@@ -60,20 +60,32 @@ type runRow struct {
 	ReceivedAt time.Time
 	StartedAt  *time.Time
 	Scn        Scenario
+	Identities map[string]string
 }
 
 func (e *Engine) load(ctx context.Context, id uuid.UUID) (runRow, error) {
 	var r runRow
-	var env, scn, usage []byte
+	var env, scn, usage, ids []byte
 	err := e.pool.QueryRow(ctx, `
 		SELECT r.id, r.agent, v.version, r.scenario, r.connection, r.state, r.status, r.envelope,
 		       r.object_key, r.idempotency_key, r.input, r.output, r.usage, r.error,
-		       r.received_at, r.started_at, v.package -> 'scenarios' -> r.scenario
+		       r.received_at, r.started_at, v.package -> 'scenarios' -> r.scenario,
+		       coalesce(v.package -> 'agent' -> 'spec' -> 'identities', '[]'::jsonb)
 		FROM runs r JOIN agent_versions v ON v.id = r.agent_version_id
 		WHERE r.id = $1`, id).Scan(&r.ID, &r.Agent, &r.Version, &r.Scenario, &r.Connection, &r.State, &r.Status,
-		&env, &r.ObjectKey, &r.IdemKey, &r.Input, &r.Output, &usage, &r.Error, &r.ReceivedAt, &r.StartedAt, &scn)
+		&env, &r.ObjectKey, &r.IdemKey, &r.Input, &r.Output, &usage, &r.Error, &r.ReceivedAt, &r.StartedAt, &scn, &ids)
 	if err != nil {
 		return r, err
+	}
+	var idents []Identity
+	if err := json.Unmarshal(ids, &idents); err != nil {
+		return r, fmt.Errorf("decode identities: %w", err)
+	}
+	for _, i := range idents {
+		if r.Identities == nil {
+			r.Identities = map[string]string{}
+		}
+		r.Identities[i.System] = i.Account
 	}
 	if err := json.Unmarshal(env, &r.Env); err != nil {
 		return r, fmt.Errorf("decode envelope: %w", err)
@@ -354,7 +366,7 @@ func (e *Engine) approve(ctx context.Context, r runRow) (outcome, error) {
 		return outcome{}, err
 	}
 	if _, err := e.drv.Channel.AskApproval(ctx, driver.ApprovalRequest{
-		Message: driver.Message{RunID: r.ID.String(), Agent: r.Agent, Connection: r.Connection, ObjectKey: r.ObjectKey,
+		Message: driver.Message{RunID: r.ID.String(), Agent: r.Agent, Connection: r.Connection, ObjectKey: r.ObjectKey, Identities: r.Identities,
 			Target: r.target()},
 		WaitID: waitID.String(), DraftID: draftID.String(), Fingerprint: fp, Action: r.Output, Deadline: deadline,
 	}); err != nil {
@@ -562,7 +574,7 @@ func (e *Engine) renderRun(r runRow, status string) render.Run {
 // fails, the driver shows the raw output: the answer still reaches people.
 func (e *Engine) answer(r runRow) driver.Message {
 	m := driver.Message{
-		RunID: r.ID.String(), Agent: r.Agent, Connection: r.Connection, ObjectKey: r.ObjectKey,
+		RunID: r.ID.String(), Agent: r.Agent, Connection: r.Connection, ObjectKey: r.ObjectKey, Identities: r.Identities,
 		Target: r.target(), Data: r.Output,
 	}
 	if r.Scn.Template == "" {
@@ -597,7 +609,7 @@ func (e *Engine) notifyFailure(ctx context.Context, r runRow, status string) {
 			r.Agent, r.ID.String()[:8], status, strings.TrimPrefix(r.Error, validationPrefix))
 	}
 	if _, err := e.drv.Channel.Post(ctx, driver.Message{
-		RunID: r.ID.String(), Agent: r.Agent, Connection: r.Connection, ObjectKey: r.ObjectKey, Target: t, Text: text,
+		RunID: r.ID.String(), Agent: r.Agent, Connection: r.Connection, ObjectKey: r.ObjectKey, Identities: r.Identities, Target: t, Text: text,
 	}); err != nil {
 		e.log.Warn("failure notice not delivered", "run_id", r.ID, "err", err)
 	}

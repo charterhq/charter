@@ -72,6 +72,8 @@ A message is a run like any other. The core keeps the conversation (`conversatio
 
 `users` on a message source in the connection lists who may talk to the agent; others get 403 and the driver tells them. The core knows no chat: a driver maps its threads to conversation IDs.
 
+The Mattermost driver listens as each agent bot named in `spec.identities` (`system: mattermost`) with a token in `CHARTER_MM_BOTS`, over a websocket pinged every 30 seconds and reconnected when a pong is late. A post reaches the agent when it names the bot as `@name` (not `@channel` or `@here`) or comes in a direct message; a thread is a conversation, in direct messages the channel is. `channels` on the message source binds a connection to channel IDs. The agent answers as its own bot.
+
 ## Development
 
 Requires Go and Docker.
