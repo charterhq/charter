@@ -3,6 +3,7 @@ package pkg
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charterhq/charter/internal/run"
@@ -28,8 +29,9 @@ func Compile(p *Package) (json.RawMessage, error) {
 			Instructions: p.Persona + "\n\n" + s.Instructions,
 			InputSchema:  s.InputSchema,
 			OutputSchema: s.OutputSchema,
-			Tools:        s.Spec.Tools,
+			Tools:        expandTools(p.Agent.Spec.Tools, s.Spec.Tools),
 			MaxSteps:     p.Agent.Spec.Budgets.MaxSteps,
+			MaxToolCalls: p.Agent.Spec.Budgets.MaxToolCalls,
 			Autonomy:     s.Spec.Autonomy,
 			Idempotency:  s.Spec.Idempotency.OnRepeat,
 			Template:     s.Template,
@@ -48,4 +50,28 @@ func Compile(p *Package) (json.RawMessage, error) {
 		st.Scenarios[name] = rs
 	}
 	return json.Marshal(st)
+}
+
+// expandTools resolves scenario tools to "ref.function" names. A bare ref stands for the functions
+// agent.yml allows for it, or for every function of the server when agent.yml lists none ("ref.*").
+func expandTools(agent []Tool, scenario []string) []string {
+	allowed := map[string][]string{}
+	for _, t := range agent {
+		allowed[t.Ref] = t.Functions
+	}
+	var out []string
+	for _, t := range scenario {
+		ref, fn, ok := strings.Cut(t, ".")
+		switch {
+		case ok && fn != "":
+			out = append(out, t)
+		case len(allowed[ref]) > 0:
+			for _, f := range allowed[ref] {
+				out = append(out, ref+"."+f)
+			}
+		default:
+			out = append(out, ref+".*")
+		}
+	}
+	return out
 }

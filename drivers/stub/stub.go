@@ -4,6 +4,7 @@ package stub
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -48,14 +49,40 @@ func (m *Model) CallCount() int {
 
 // Tools records calls and returns a fixed reference.
 type Tools struct {
-	mu    sync.Mutex
-	Calls []string
+	mu      sync.Mutex
+	Calls   []string
+	Args    []string
+	Defs    []driver.ToolDef
+	Results map[string]string
+	Errors  map[string]string
 }
 
-func (t *Tools) Call(_ context.Context, agent, tool string, _ json.RawMessage) (json.RawMessage, error) {
+// Results, when set, are returned by Call per tool name instead of the fixed reference.
+// Defs are what List returns; without them List echoes the requested names with an empty schema.
+func (t *Tools) List(_ context.Context, _ string, names []string) ([]driver.ToolDef, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.Defs != nil {
+		return t.Defs, nil
+	}
+	defs := make([]driver.ToolDef, 0, len(names))
+	for _, n := range names {
+		defs = append(defs, driver.ToolDef{Name: n, InputSchema: json.RawMessage(`{"type":"object"}`)})
+	}
+	return defs, nil
+}
+
+func (t *Tools) Call(_ context.Context, agent, tool string, args json.RawMessage) (json.RawMessage, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.Calls = append(t.Calls, agent+"/"+tool)
+	t.Args = append(t.Args, string(args))
+	if e, ok := t.Errors[tool]; ok {
+		return nil, errors.New(e)
+	}
+	if r, ok := t.Results[tool]; ok {
+		return json.RawMessage(r), nil
+	}
 	return json.RawMessage(fmt.Sprintf(`{"ref":"stub-%d"}`, len(t.Calls))), nil
 }
 

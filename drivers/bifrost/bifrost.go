@@ -25,7 +25,9 @@ type Config struct {
 	// Prices price a call when the gateway does not return its cost, keyed by "provider/model"
 	// or by "provider". Without a price the cost stays 0 and the run record shows it.
 	Prices map[string]Price
-	HTTP   *http.Client
+	// Tools runs the tool calls of steps that have tools; without it such steps fail.
+	Tools driver.Tools
+	HTTP  *http.Client
 }
 
 // Price is USD per million tokens.
@@ -82,19 +84,37 @@ func New(cfg Config) *Model {
 	return &Model{cfg: cfg}
 }
 
-// ErrToolsUnsupported is returned for steps that need the tool loop, which is not implemented yet.
-var ErrToolsUnsupported = errors.New("bifrost driver: tool loop (level 3) is not implemented yet")
+// ErrNoTools means a step asks for tools but the core runs without a tools driver.
+var ErrNoTools = errors.New("bifrost driver: the step needs tools, but no tools driver is configured (CHARTER_MCP_URL)")
+
+// Default step budget of the tool loop when the package sets none.
+const (
+	defaultMaxSteps     = 8
+	defaultMaxToolCalls = 20
+)
+
+type toolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
 
 type chatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
 
 type chatResponse struct {
 	Model   string `json:"model"`
 	Choices []struct {
 		Message struct {
-			Content string `json:"content"`
+			Content   string     `json:"content"`
+			ToolCalls []toolCall `json:"tool_calls"`
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
@@ -117,11 +137,12 @@ type chatResponse struct {
 	} `json:"error"`
 }
 
-// Run makes one model call and returns the JSON the model produced.
+// fnName turns a package tool name into a function name models accept ([a-zA-Z0-9_-]).
+func fnName(pkgName string) string { return strings.ReplaceAll(pkgName, ".", "__") }
+
+// Run makes one model call, or runs the model with tools until it answers, within the step budget.
+// It returns the JSON the model produced.
 func (m *Model) Run(ctx context.Context, req driver.StepRequest) (driver.StepResult, error) {
-	if len(req.Tools) > 0 {
-		return driver.StepResult{}, ErrToolsUnsupported
-	}
 	model, ok := m.cfg.Classes[req.ModelClass]
 	if !ok {
 		return driver.StepResult{}, fmt.Errorf("bifrost driver: no model for class %q", req.ModelClass)
@@ -139,10 +160,121 @@ func (m *Model) Run(ctx context.Context, req driver.StepRequest) (driver.StepRes
 		msgs = append(msgs, chatMessage{Role: "user", Content: "The previous answer failed validation:\n- " +
 			strings.Join(req.Feedback, "\n- ") + "\nReturn the corrected JSON only."})
 	}
+
+	var tools []map[string]any
+	byFn := map[string]string{}
+	if len(req.Tools) > 0 {
+		if m.cfg.Tools == nil {
+			return driver.StepResult{}, ErrNoTools
+		}
+		defs, err := m.cfg.Tools.List(ctx, req.Agent, req.Tools)
+		if err != nil {
+			return driver.StepResult{}, err
+		}
+		for _, d := range defs {
+			fn := fnName(d.Name)
+			byFn[fn] = d.Name
+			tools = append(tools, map[string]any{"type": "function", "function": map[string]any{
+				"name": fn, "description": d.Description, "parameters": d.InputSchema,
+			}})
+		}
+	}
+	maxSteps, maxCalls := req.MaxSteps, req.MaxToolCalls
+	if maxSteps <= 0 {
+		maxSteps = defaultMaxSteps
+	}
+	if maxCalls <= 0 {
+		maxCalls = defaultMaxToolCalls
+	}
+	if len(tools) == 0 {
+		maxSteps = 1
+	}
+
+	var usage driver.Usage
+	for step := 1; ; step++ {
+		// The last step and an exhausted call budget leave the model no tools: it must answer.
+		offer := len(tools) > 0 && step < maxSteps && usage.ToolCalls < maxCalls
+		cr, err := m.call(ctx, req, model, msgs, tools, offer)
+		if err != nil {
+			return driver.StepResult{Usage: usage}, err
+		}
+		m.addUsage(&usage, cr)
+		choice := cr.Choices[0]
+		if len(choice.Message.ToolCalls) == 0 || !offer {
+			out := extractJSON(choice.Message.Content)
+			return driver.StepResult{Output: json.RawMessage(out), Usage: usage}, nil
+		}
+		msgs = append(msgs, chatMessage{Role: "assistant", Content: choice.Message.Content, ToolCalls: choice.Message.ToolCalls})
+		for _, tc := range choice.Message.ToolCalls {
+			msgs = append(msgs, chatMessage{Role: "tool", ToolCallID: tc.ID, Content: m.runTool(ctx, req.Agent, byFn, tc, &usage, maxCalls)})
+		}
+	}
+}
+
+// runTool executes one call the model asked for and returns what the model gets back.
+// Failures go back to the model as text: it may fix the arguments or answer without the tool.
+func (m *Model) runTool(ctx context.Context, agent string, byFn map[string]string, tc toolCall, usage *driver.Usage, maxCalls int) string {
+	name, ok := byFn[tc.Function.Name]
+	if !ok {
+		usage.ToolErrors++
+		return fmt.Sprintf("error: tool %q is not available in this step", tc.Function.Name)
+	}
+	if usage.ToolCalls >= maxCalls {
+		usage.ToolErrors++
+		return "error: tool call budget of the run is spent, answer with what you have"
+	}
+	usage.ToolCalls++
+	args := json.RawMessage(tc.Function.Arguments)
+	if len(strings.TrimSpace(tc.Function.Arguments)) == 0 {
+		args = json.RawMessage("{}")
+	}
+	res, err := m.cfg.Tools.Call(ctx, agent, name, args)
+	if err != nil {
+		usage.ToolErrors++
+		return "error: " + err.Error()
+	}
+	return string(res)
+}
+
+func (m *Model) addUsage(u *driver.Usage, cr chatResponse) {
+	call := driver.Usage{
+		InputTokens:     cr.Usage.PromptTokens,
+		OutputTokens:    cr.Usage.CompletionTokens,
+		CachedTokens:    cr.Usage.PromptTokensDetails.CachedTokens,
+		ReasoningTokens: cr.Usage.CompletionTokensDetails.ReasoningTokens,
+		Model:           cr.Model,
+		Provider:        cr.ExtraFields.Provider,
+	}
+	if c, ok := gatewayCost(cr.Usage.Cost); ok {
+		call.Cost = c
+	} else if p, ok := m.price(call.Provider, call.Model); ok {
+		call.Cost = p.cost(call)
+	}
+	u.InputTokens += call.InputTokens
+	u.OutputTokens += call.OutputTokens
+	u.CachedTokens += call.CachedTokens
+	u.ReasoningTokens += call.ReasoningTokens
+	u.Cost += call.Cost
+	u.Model, u.Provider = call.Model, call.Provider
+	u.FinishReason = cr.Choices[0].FinishReason
+}
+
+// call makes one chat completion request.
+func (m *Model) call(ctx context.Context, req driver.StepRequest, model string, msgs []chatMessage, tools []map[string]any, offer bool) (chatResponse, error) {
 	body := map[string]any{
 		"model":           model,
 		"messages":        msgs,
 		"response_format": map[string]string{"type": "json_object"},
+	}
+	if len(tools) > 0 {
+		// Tools stay in every request of the loop (stable prompt prefix for the gateway cache);
+		// tool_choice says whether the model may still call them.
+		body["tools"] = tools
+		if offer {
+			body["tool_choice"] = "auto"
+		} else {
+			body["tool_choice"] = "none"
+		}
 	}
 	// Platform defaults for the class first, then the agent's own parameters from its package.
 	for k, v := range m.cfg.Params[req.ModelClass] {
@@ -160,12 +292,12 @@ func (m *Model) Run(ctx context.Context, req driver.StepRequest) (driver.StepRes
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return driver.StepResult{}, err
+		return chatResponse{}, err
 	}
 
 	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, m.cfg.URL+"/v1/chat/completions", bytes.NewReader(payload))
 	if err != nil {
-		return driver.StepResult{}, err
+		return chatResponse{}, err
 	}
 	hreq.Header.Set("Authorization", "Bearer "+m.cfg.Key)
 	hreq.Header.Set("Content-Type", "application/json")
@@ -179,44 +311,28 @@ func (m *Model) Run(ctx context.Context, req driver.StepRequest) (driver.StepRes
 
 	resp, err := m.cfg.HTTP.Do(hreq)
 	if err != nil {
-		return driver.StepResult{}, fmt.Errorf("bifrost: %w", err)
+		return chatResponse{}, fmt.Errorf("bifrost: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if err != nil {
-		return driver.StepResult{}, fmt.Errorf("bifrost: read response: %w", err)
+		return chatResponse{}, fmt.Errorf("bifrost: read response: %w", err)
 	}
 	var cr chatResponse
 	if err := json.Unmarshal(raw, &cr); err != nil {
-		return driver.StepResult{}, fmt.Errorf("bifrost: HTTP %d, undecodable response: %.200s", resp.StatusCode, raw)
+		return chatResponse{}, fmt.Errorf("bifrost: HTTP %d, undecodable response: %.200s", resp.StatusCode, raw)
 	}
 	if resp.StatusCode != http.StatusOK {
 		msg := fmt.Sprintf("%.200s", raw)
 		if cr.Error != nil {
 			msg = cr.Error.Message
 		}
-		return driver.StepResult{}, fmt.Errorf("bifrost: HTTP %d: %s", resp.StatusCode, msg)
+		return chatResponse{}, fmt.Errorf("bifrost: HTTP %d: %s", resp.StatusCode, msg)
 	}
 	if len(cr.Choices) == 0 {
-		return driver.StepResult{}, errors.New("bifrost: response has no choices")
+		return chatResponse{}, errors.New("bifrost: response has no choices")
 	}
-
-	usage := driver.Usage{
-		InputTokens:     cr.Usage.PromptTokens,
-		OutputTokens:    cr.Usage.CompletionTokens,
-		CachedTokens:    cr.Usage.PromptTokensDetails.CachedTokens,
-		ReasoningTokens: cr.Usage.CompletionTokensDetails.ReasoningTokens,
-		Model:           cr.Model,
-		Provider:        cr.ExtraFields.Provider,
-		FinishReason:    cr.Choices[0].FinishReason,
-	}
-	if c, ok := gatewayCost(cr.Usage.Cost); ok {
-		usage.Cost = c
-	} else if p, ok := m.price(usage.Provider, usage.Model); ok {
-		usage.Cost = p.cost(usage)
-	}
-	out := extractJSON(cr.Choices[0].Message.Content)
-	return driver.StepResult{Output: json.RawMessage(out), Usage: usage}, nil
+	return cr, nil
 }
 
 // extractJSON strips a markdown code fence around the answer, if the model added one.

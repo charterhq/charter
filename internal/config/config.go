@@ -11,6 +11,7 @@ import (
 	"github.com/charterhq/charter/drivers/bifrost"
 	"github.com/charterhq/charter/drivers/clickhouse"
 	"github.com/charterhq/charter/drivers/mattermost"
+	"github.com/charterhq/charter/drivers/mcp"
 	"github.com/charterhq/charter/drivers/stub"
 	"github.com/charterhq/charter/internal/driver"
 )
@@ -56,10 +57,46 @@ func Tokens() (map[string]string, error) {
 	return out, nil
 }
 
+// MCPKeys reads gateway keys of agents from CHARTER_MCP_KEYS: "agent:key" pairs separated by commas
+// or newlines; agent "*" is the key for agents without their own.
+func MCPKeys() (map[string]string, error) {
+	out := map[string]string{}
+	for _, pair := range strings.FieldsFunc(Env("CHARTER_MCP_KEYS"), func(r rune) bool { return r == ',' || r == '\n' }) {
+		agent, key, ok := strings.Cut(strings.TrimSpace(pair), ":")
+		if !ok || agent == "" || key == "" || strings.ContainsAny(key, ": \t\r") {
+			return nil, fmt.Errorf("CHARTER_MCP_KEYS: each entry is agent:key, entries separated by commas or newlines")
+		}
+		out[agent] = key
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("CHARTER_MCP_KEYS is required with CHARTER_MCP_URL")
+	}
+	return out, nil
+}
+
+// modelTools hands the model driver a real tools driver only: with the stub, steps with tools fail loudly.
+func modelTools(t driver.Tools) driver.Tools {
+	if _, isStub := t.(*stub.Tools); isStub {
+		return nil
+	}
+	return t
+}
+
 // Drivers builds the driver set. A driver whose settings are missing falls back to a stub, with a warning.
 func Drivers(log *slog.Logger) (driver.Set, *clickhouse.Journal, error) {
 	var set driver.Set
 	var journal *clickhouse.Journal
+
+	if url := Env("CHARTER_MCP_URL"); url != "" {
+		keys, err := MCPKeys()
+		if err != nil {
+			return set, nil, err
+		}
+		set.Tools = mcp.New(mcp.Config{URL: url, Keys: keys, Sep: Env("CHARTER_MCP_TOOL_SEPARATOR")})
+	} else {
+		log.Warn("tools driver is a stub: CHARTER_MCP_URL is not set, steps with tools will fail")
+		set.Tools = &stub.Tools{}
+	}
 
 	if url, key := Env("CHARTER_BIFROST_URL"), Env("CHARTER_BIFROST_KEY"); url != "" && key != "" {
 		var classes map[string]string
@@ -78,7 +115,7 @@ func Drivers(log *slog.Logger) (driver.Set, *clickhouse.Journal, error) {
 				return set, nil, fmt.Errorf("CHARTER_MODEL_PRICES must map provider[/model] to {input, cached_input, output} USD per 1M tokens: %w", err)
 			}
 		}
-		set.Model = bifrost.New(bifrost.Config{URL: url, Key: key, Classes: classes, Params: params, Prices: prices})
+		set.Model = bifrost.New(bifrost.Config{URL: url, Key: key, Classes: classes, Params: params, Prices: prices, Tools: modelTools(set.Tools)})
 	} else {
 		log.Warn("model driver is a stub: CHARTER_BIFROST_URL or CHARTER_BIFROST_KEY is not set")
 		set.Model = &stub.Model{}
@@ -107,7 +144,5 @@ func Drivers(log *slog.Logger) (driver.Set, *clickhouse.Journal, error) {
 		log.Warn("journal driver is a stub: CHARTER_CH_URL is not set")
 		set.Journal = &stub.Journal{}
 	}
-
-	set.Tools = &stub.Tools{} // MCP gateway driver comes with the tools step
 	return set, journal, nil
 }

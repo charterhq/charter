@@ -21,8 +21,10 @@ type StepRequest struct {
 	Instructions string
 	Input        json.RawMessage
 	OutputSchema json.RawMessage
+	// Tools the step may call, as "ref.function" from the package; empty for a single model call.
 	Tools        []string
 	MaxSteps     int
+	MaxToolCalls int
 	// Feedback carries validation errors of the previous attempt, empty on the first one.
 	Feedback []string
 	// Traceparent links calls made by the driver to the run trace (W3C header value).
@@ -54,8 +56,18 @@ type ModelStep interface {
 	Run(ctx context.Context, req StepRequest) (StepResult, error)
 }
 
-// Tools calls a tool on behalf of an agent.
+// ToolDef describes a tool to the model: the name the model calls it by and its argument schema.
+type ToolDef struct {
+	// Name is the package name "ref.function".
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	InputSchema json.RawMessage `json:"input_schema,omitempty"`
+}
+
+// Tools lists and calls tools on behalf of an agent. Names are package names "ref.function";
+// the driver maps them to its gateway and calls them with the agent's own credentials.
 type Tools interface {
+	List(ctx context.Context, agent string, names []string) ([]ToolDef, error)
 	Call(ctx context.Context, agent, tool string, args json.RawMessage) (json.RawMessage, error)
 }
 

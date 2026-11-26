@@ -84,6 +84,7 @@ type Scenario struct {
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 	Tools        []string        `json:"tools,omitempty"`
 	MaxSteps     int             `json:"max_steps,omitempty"`
+	MaxToolCalls int             `json:"max_tool_calls,omitempty"`
 	Autonomy     string          `json:"autonomy"` // advise, act
 	Action       string          `json:"action,omitempty"`
 	Approval     *Approval       `json:"approval,omitempty"`

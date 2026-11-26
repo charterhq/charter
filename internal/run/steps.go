@@ -231,7 +231,7 @@ func (e *Engine) model(ctx context.Context, r runRow) (outcome, error) {
 	req := driver.StepRequest{
 		RunID: r.ID.String(), Agent: r.Agent, Scenario: r.Scenario, ModelClass: r.Scn.ModelClass, Params: r.Scn.ModelParams,
 		Instructions: r.Scn.Instructions, Input: r.Input, OutputSchema: r.Scn.OutputSchema,
-		Tools: r.Scn.Tools, MaxSteps: r.Scn.MaxSteps, Traceparent: r.Env.Trace.Traceparent(),
+		Tools: r.Scn.Tools, MaxSteps: r.Scn.MaxSteps, MaxToolCalls: r.Scn.MaxToolCalls, Traceparent: r.Env.Trace.Traceparent(),
 	}
 	if len(r.Error) > len(validationPrefix) && r.Error[:len(validationPrefix)] == validationPrefix {
 		req.Feedback = []string{r.Error[len(validationPrefix):]}
