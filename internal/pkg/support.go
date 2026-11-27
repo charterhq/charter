@@ -51,7 +51,9 @@ var Fields = []FieldSupport{
 	{"Agent", "spec.identities", Executed, ""},
 	{"Agent", "spec.tools", Executed, "MCP gateway, functions limit what the model and the action may call"},
 	{"Agent", "spec.skills", Unsupported, "not given to the model"},
-	{"Agent", "spec.knowledge", Unsupported, "not given to the model"},
+	{"Agent", "spec.knowledge.path", Executed, "files under knowledge/ go into the model context, 256 KiB per agent"},
+	{"Agent", "spec.knowledge.repo", Unsupported, "the core does not read other repositories"},
+	{"Agent", "spec.knowledge.ref", Unsupported, "the core does not read other repositories"},
 	{"Agent", "spec.budgets.timeout", Unenforced, "a step is limited by the core step timeout, not by the run budget"},
 	{"Agent", "spec.budgets.max_steps", Executed, "model turns per run"},
 	{"Agent", "spec.budgets.max_tool_calls", Executed, ""},
@@ -102,7 +104,7 @@ var Fields = []FieldSupport{
 	{"Scenario", "spec.on_failure=owner", Unsupported, "failures go to the place the run answers in"},
 	{"Scenario", "spec.eval", Executed, "agentctl eval runs the cases through the core steps, without the action and the answer"},
 	{"Scenario", "spec.feedback", Unsupported, "no feedback collection"},
-	{"Scenario", "spec.params", Unsupported, "not given to the run"},
+	{"Scenario", "spec.params", Executed, "JSON Schema per parameter; values go into the model context and the response template as .params"},
 	{"Scenario", "spec.response", Executed, ""},
 
 	{"Connection", "metadata.name", Executed, ""},
@@ -113,8 +115,10 @@ var Fields = []FieldSupport{
 	{"Connection", "spec.scenarios", Executed, ""},
 	{"Connection", "spec.triggers", Executed, "receiver, schedule, input, users, channels"},
 	{"Connection", "spec.channels", Executed, "reply and shadow"},
-	{"Connection", "spec.params", Unsupported, "not given to the run"},
-	{"Connection", "spec.knowledge", Unsupported, "not given to the model"},
+	{"Connection", "spec.params", Executed, "checked against the scenario parameter schemas"},
+	{"Connection", "spec.knowledge.path", Executed, "the team's files under knowledge/ go into the model context after the agent's"},
+	{"Connection", "spec.knowledge.repo", Unsupported, "the core does not read other repositories"},
+	{"Connection", "spec.knowledge.ref", Unsupported, "the core does not read other repositories"},
 	{"Connection", "spec.budgets", Unsupported, "no per-connection limits"},
 	{"Connection", "spec.status", Executed, ""},
 }
@@ -147,7 +151,6 @@ func checkSupport(p *Package, ps, ws *Problems) {
 	a, file := p.Agent.Spec, "agent.yml"
 	unsupported(file, "Agent", "spec.persona_includes", len(a.PersonaIncludes) > 0)
 	unsupported(file, "Agent", "spec.skills", len(a.Skills) > 0)
-	unsupported(file, "Agent", "spec.knowledge", len(a.Knowledge) > 0)
 	unsupported(file, "Agent", "spec.budgets.max_cost_per_run", a.Budgets.MaxCostPerRun > 0)
 	unsupported(file, "Agent", "spec.memory=object", a.Memory == "object")
 	unenforced(file, "Agent", "spec.data_classes", len(a.DataClasses) > 0)
@@ -180,14 +183,11 @@ func checkSupport(p *Package, ps, ws *Problems) {
 		unsupported(file, "Scenario", "spec.artifacts", len(s.Artifacts) > 0)
 		unsupported(file, "Scenario", "spec.on_failure=owner", s.OnFailure == "owner")
 		unsupported(file, "Scenario", "spec.feedback", s.Feedback != nil)
-		unsupported(file, "Scenario", "spec.params", len(s.Params) > 0)
 		unenforced(file, "Scenario", "spec.idempotency.key", len(s.Idempotency.Key) > 0)
 	}
 
 	for _, name := range sortedKeys(p.Connections) {
 		c, file := p.Connections[name].Spec, p.Connections[name].File
-		unsupported(file, "Connection", "spec.params", len(c.Params) > 0)
-		unsupported(file, "Connection", "spec.knowledge", len(c.Knowledge) > 0)
 		unsupported(file, "Connection", "spec.budgets", len(c.Budgets) > 0)
 	}
 }

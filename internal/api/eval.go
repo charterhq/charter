@@ -14,7 +14,9 @@ import (
 // evalCase runs one case of a package evaluation set through the model part of the run steps.
 // The package is not published: it comes in the body like for publish, nothing is recorded.
 //
-//	POST /v1/eval?scenario=<name>&case=<id>   body: tar.gz of the package directory
+//	POST /v1/eval?scenario=<name>&case=<id>[&connection=<name>]   body: tar.gz of the package directory
+//
+// With a connection the case runs with that team's parameters and knowledge.
 func (s *Server) evalCase(w http.ResponseWriter, r *http.Request) {
 	who := caller(r.Context())
 	if !s.Publishers[who] {
@@ -53,16 +55,26 @@ func (s *Server) evalCase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var st struct {
-		Scenarios map[string]run.Scenario `json:"scenarios"`
+		Scenarios   map[string]run.Scenario   `json:"scenarios"`
+		Connections map[string]run.Connection `json:"connections"`
 	}
 	if err := json.Unmarshal(raw, &st); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	scn, agent := st.Scenarios[scenario], p.Agent.Metadata.Name
+	var conn *run.Connection
+	if name := r.URL.Query().Get("connection"); name != "" {
+		c, ok := st.Connections[name]
+		if !ok {
+			writeErr(w, http.StatusNotFound, "no connection "+name)
+			return
+		}
+		conn = &c
+	}
 
 	started := time.Now()
-	res, err := s.Engine.Evaluate(r.Context(), agent, scn, c.Input)
+	res, err := s.Engine.Evaluate(r.Context(), agent, scn, conn, c.Params, c.Input)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, "model step: "+err.Error())
 		return

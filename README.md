@@ -31,6 +31,10 @@ go run ./cmd/agentctl validate examples/ticket-triage
 
 The format is ahead of the core. `agentctl fields` prints what this core does with each field: `executed`, `described` (kept for people and review), `unenforced` (required by the format, not enforced yet: validation warns) or `unsupported` (validation fails when the field is set). A package never passes with a field the core would silently ignore.
 
+## Parameters and knowledge
+
+A scenario declares parameters as JSON Schemas with defaults (`spec.params`); a connection sets the team's values (`spec.params`), checked against those schemas, and a parameter without a default must be set by every connection that enables the scenario. Knowledge files live in the package under `knowledge/` and are named in `agent.yml` and in connections (`knowledge: [{path: knowledge/people.yml}]`), up to 256 KiB per agent; the core does not read other repositories. A run gets, after the persona and the instructions, the agent's knowledge, then its connection's, then the parameters; the response template sees them as `.params`. `agentctl eval --connection <name>` runs cases with a team's parameters and knowledge, a case may set its own `params`.
+
 ## Evaluate a package
 
 ```sh

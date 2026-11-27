@@ -113,6 +113,16 @@ type Scenario struct {
 	Triggers []Trigger `json:"triggers,omitempty"`
 	// Memory is the agent's memory kind: none, thread (conversation history goes into the input), object.
 	Memory string `json:"memory,omitempty"`
+	// Params are the parameter defaults; a run sees them merged with its connection's values.
+	Params map[string]any `json:"params,omitempty"`
+	// Knowledge are the agent's knowledge files; a run adds its connection's files.
+	Knowledge []Doc `json:"knowledge,omitempty"`
+}
+
+// Doc is a knowledge file that goes into the model context.
+type Doc struct {
+	Path string `json:"path"`
+	Text string `json:"text"`
 }
 
 // Approval configures step 7.
@@ -158,6 +168,11 @@ type Connection struct {
 	// "shadow" while the connection is in shadow. Values are channel IDs of the channel driver.
 	Channels map[string]string `json:"channels,omitempty"`
 	Params   map[string]any    `json:"params,omitempty"`
+	// Knowledge are the team's knowledge files for this connection.
+	Knowledge []Doc `json:"knowledge,omitempty"`
+	// ScenarioParams are the parameters each enabled scenario runs with for this team:
+	// the scenario defaults with the connection's values over them.
+	ScenarioParams map[string]map[string]any `json:"scenario_params,omitempty"`
 }
 
 // ConnectionTrigger is the team side of a logical source.

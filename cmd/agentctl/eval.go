@@ -41,10 +41,11 @@ func evalCmd(args []string) int {
 	fs := flag.NewFlagSet("eval", flag.ContinueOnError)
 	scenario := fs.String("scenario", "", "only this scenario")
 	only := fs.String("case", "", "only this case id")
+	conn := fs.String("connection", "", "run with this connection's parameters and knowledge")
 	asJSON := fs.Bool("json", false, "print reports as JSON lines")
 	jobs := fs.Int("j", 2, "cases run in parallel")
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: agentctl eval <package-dir> [--scenario s] [--case id] [-j N] [--json]")
+		fmt.Fprintln(os.Stderr, "usage: agentctl eval <package-dir> [--scenario s] [--case id] [--connection c] [-j N] [--json]")
 		return 2
 	}
 	dir := args[0]
@@ -100,7 +101,7 @@ func evalCmd(args []string) int {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			rep := callEval(client, base, token, body, j.scenario, j.id)
+			rep := callEval(client, base, token, body, j.scenario, j.id, *conn)
 			reports[i] = rep
 			mu.Lock()
 			printReport(rep, *asJSON)
@@ -125,9 +126,12 @@ func evalCmd(args []string) int {
 	return 0
 }
 
-func callEval(client *http.Client, base, token string, body []byte, scenario, id string) evalReport {
+func callEval(client *http.Client, base, token string, body []byte, scenario, id, conn string) evalReport {
 	rep := evalReport{Scenario: scenario, Case: id}
 	q := url.Values{"scenario": {scenario}, "case": {id}}
+	if conn != "" {
+		q.Set("connection", conn)
+	}
 	req, err := http.NewRequest(http.MethodPost, base+"/v1/eval?"+q.Encode(), bytes.NewReader(body))
 	if err != nil {
 		rep.Error = err.Error()

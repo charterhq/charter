@@ -20,7 +20,7 @@ var version = "dev"
 
 const usage = `usage:
   agentctl validate <package-dir> [--json]          check an agent package
-  agentctl eval <package-dir> [--scenario s] [--case id] [-j N] [--json]
+  agentctl eval <package-dir> [--scenario s] [--case id] [--connection c] [-j N] [--json]
                                                      run the evaluation set through the core, no publish
   agentctl fields                                    what this core does with each field of the format
   agentctl publish <package-dir> [git-sha]           validate and publish a package to the core

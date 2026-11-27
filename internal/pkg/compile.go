@@ -39,6 +39,10 @@ func Compile(p *Package) (json.RawMessage, error) {
 			Idempotency:  s.Spec.Idempotency.OnRepeat,
 			Template:     s.Template,
 			Memory:       p.Agent.Spec.Memory,
+			Knowledge:    knowledgeDocs(p, p.Agent.Spec.Knowledge),
+		}
+		if len(s.Spec.Params) > 0 {
+			rs.Params = ParamDefaults(s.Spec.Params)
 		}
 		for _, t := range s.Spec.Triggers {
 			rs.Triggers = append(rs.Triggers, run.Trigger{Type: t.Type, Source: t.Source, Schedule: t.Schedule})
@@ -58,7 +62,24 @@ func Compile(p *Package) (json.RawMessage, error) {
 	}
 	for name, c := range p.Connections {
 		rc := run.Connection{Name: name, Team: c.Metadata.Team, Owner: c.Metadata.Owner, Scenarios: c.Spec.Scenarios,
-			Status: c.Spec.Status, Channels: c.Spec.Channels, Params: c.Spec.Params}
+			Status: c.Spec.Status, Channels: c.Spec.Channels, Params: c.Spec.Params,
+			Knowledge: knowledgeDocs(p, c.Spec.Knowledge)}
+		for _, sn := range c.Spec.Scenarios {
+			s := p.Scenarios[sn]
+			if s == nil || len(s.Spec.Params) == 0 {
+				continue
+			}
+			vals := ParamDefaults(s.Spec.Params)
+			for pn := range s.Spec.Params {
+				if v, ok := c.Spec.Params[pn]; ok {
+					vals[pn] = v
+				}
+			}
+			if rc.ScenarioParams == nil {
+				rc.ScenarioParams = map[string]map[string]any{}
+			}
+			rc.ScenarioParams[sn] = vals
+		}
 		for src, t := range c.Spec.Triggers {
 			if rc.Triggers == nil {
 				rc.Triggers = map[string]run.ConnectionTrigger{}

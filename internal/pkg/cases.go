@@ -21,6 +21,7 @@ import (
 //	id: refund
 //	input: {...}                     the run input, or
 //	input_file: packages/refund.json a JSON file next to cases/, relative to the eval directory
+//	params: {queues: [l1]}           scenario parameters for this case, over the defaults or the connection
 //	expected: {category: billing}    output fields that must be equal; objects match as subsets
 //	checks:
 //	  - every finding cites evidence from the input    a criterion for the judge model
@@ -33,6 +34,7 @@ type Case struct {
 	ID        string          `json:"id"`
 	Input     json.RawMessage `json:"input,omitempty"`
 	InputFile string          `json:"input_file,omitempty"`
+	Params    map[string]any  `json:"params,omitempty"`
 	Expected  map[string]any  `json:"expected,omitempty"`
 	Checks    []Check         `json:"checks,omitempty"`
 
@@ -124,7 +126,7 @@ func (c Check) validate() error {
 }
 
 // loadCases reads the cases of a scenario and checks each input against the input schema.
-func loadCases(fsys fs.FS, evalDir string, inputSchema json.RawMessage, ps *Problems) []Case {
+func loadCases(fsys fs.FS, evalDir string, inputSchema json.RawMessage, params map[string]json.RawMessage, ps *Problems) []Case {
 	files, _ := fs.Glob(fsys, path.Join(evalDir, "cases", "*.yml"))
 	var out []Case
 	seen := map[string]bool{}
@@ -179,6 +181,17 @@ func loadCases(fsys fs.FS, evalDir string, inputSchema json.RawMessage, ps *Prob
 		if len(c.Input) > 0 && len(inputSchema) > 0 {
 			for _, p := range schema.Check(inputSchema, c.Input) {
 				ps.add(file, "input does not match input_schema: %s", p)
+			}
+		}
+		for _, pn := range sortedKeys(c.Params) {
+			raw, ok := params[pn]
+			if !ok {
+				ps.add(file, "params.%s is not a parameter of the scenario", pn)
+				continue
+			}
+			b, _ := json.Marshal(c.Params[pn])
+			for _, msg := range schema.Check(raw, b) {
+				ps.add(file, "params.%s does not match its schema: %s", pn, msg)
 			}
 		}
 		for i, ch := range c.Checks {

@@ -9,6 +9,7 @@
 //	scenarios/<name>/input.schema.json
 //	scenarios/<name>/output.schema.json
 //	scenarios/<name>/eval/cases/*.yml
+//	knowledge/*                     knowledge files named in agent.yml and connections
 //	connections/<team>.yml          team connections (kind: Connection)
 package pkg
 
@@ -29,6 +30,8 @@ type Package struct {
 	Connections map[string]*Connection
 	// Warnings are required fields this core does not enforce; they do not stop the package.
 	Warnings Problems
+	// Knowledge are the knowledge files of the package (knowledge/...) by path.
+	Knowledge map[string]string
 }
 
 type Metadata struct {
@@ -144,16 +147,18 @@ type ScenarioSpec struct {
 	Action       string      `json:"action,omitempty"`
 	// ActionInput names the output field that holds the action arguments; without the field in the
 	// output there is no action, only the answer. Empty means the whole output is the arguments.
-	ActionInput string         `json:"action_input,omitempty"`
-	Approval    *Approval      `json:"approval,omitempty"`
-	Checks      []string       `json:"checks,omitempty"`
-	Idempotency Idempotency    `json:"idempotency"`
-	Artifacts   []Artifact     `json:"artifacts,omitempty"`
-	OnFailure   string         `json:"on_failure"`
-	Eval        string         `json:"eval"`
-	Feedback    *Feedback      `json:"feedback,omitempty"`
-	Params      map[string]any `json:"params,omitempty"`
-	Response    *Response      `json:"response,omitempty"`
+	ActionInput string      `json:"action_input,omitempty"`
+	Approval    *Approval   `json:"approval,omitempty"`
+	Checks      []string    `json:"checks,omitempty"`
+	Idempotency Idempotency `json:"idempotency"`
+	Artifacts   []Artifact  `json:"artifacts,omitempty"`
+	OnFailure   string      `json:"on_failure"`
+	Eval        string      `json:"eval"`
+	Feedback    *Feedback   `json:"feedback,omitempty"`
+	// Params are the scenario parameters: name -> JSON Schema with an optional default.
+	// A parameter without a default must be set by every connection that enables the scenario.
+	Params   map[string]json.RawMessage `json:"params,omitempty"`
+	Response *Response                  `json:"response,omitempty"`
 }
 
 // Response says how the answer is shown to people.
@@ -212,7 +217,7 @@ type ConnectionSpec struct {
 	Triggers  map[string]ConnectionTrigger `json:"triggers,omitempty"`
 	Channels  map[string]string            `json:"channels,omitempty"`
 	Params    map[string]any               `json:"params,omitempty"`
-	Knowledge []any                        `json:"knowledge,omitempty"`
+	Knowledge []Knowledge                  `json:"knowledge,omitempty"`
 	Budgets   map[string]any               `json:"budgets,omitempty"`
 	Status    string                       `json:"status"`
 }

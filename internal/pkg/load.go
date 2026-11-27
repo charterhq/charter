@@ -143,6 +143,8 @@ func Load(fsys fs.FS) (*Package, Problems) {
 		}
 	}
 
+	loadKnowledge(fsys, p, &ps)
+	checkParams(p, &ps)
 	checkSupport(p, &ps, &p.Warnings)
 
 	sort.SliceStable(ps, func(i, j int) bool { return ps[i].File < ps[j].File })
@@ -238,7 +240,7 @@ func loadScenario(fsys fs.FS, name string, agentTools map[string][]string, ps *P
 		ps.add(file, "approval is only meaningful for autonomy act")
 	}
 
-	s.Cases = loadCases(fsys, path.Join(dir, sp.Eval), s.InputSchema, ps)
+	s.Cases = loadCases(fsys, path.Join(dir, sp.Eval), s.InputSchema, sp.Params, ps)
 	if len(s.Cases) == 0 {
 		ps.add(path.Join(dir, sp.Eval), "evaluation set has no cases (cases/*.yml)")
 	}

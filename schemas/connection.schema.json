@@ -49,7 +49,15 @@
           "additionalProperties": {"type": "string", "minLength": 1}
         },
         "params": {"type": "object"},
-        "knowledge": {"type": "array"},
+        "knowledge": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path"],
+            "properties": {"repo": {"type": "string"}, "path": {"type": "string", "minLength": 1}, "ref": {"type": "string"}}
+          }
+        },
         "budgets": {"type": "object"},
         "status": {"enum": ["shadow", "active", "paused"]}
       }

@@ -86,7 +86,7 @@ func TestUnsupportedFields(t *testing.T) {
 		edit func(m fstest.MapFS)
 		want string
 	}{
-		{"knowledge", add("agent.yml", "  memory: none\n", "  knowledge:\n    - {repo: docs, path: kb/}\n"), "agent.yml: spec.knowledge is not supported"},
+		{"knowledge from another repo", add("agent.yml", "  memory: none\n", "  knowledge:\n    - {repo: docs, path: kb/}\n"), "agent.yml: knowledge kb/: sources in other repositories are not supported"},
 		{"skills", add("agent.yml", "  memory: none\n", "  skills:\n    - {ref: tone, version: 1.0.0}\n"), "spec.skills is not supported"},
 		{"persona includes", add("agent.yml", "  persona: persona.md\n", "  persona_includes: [common.md]\n"), "spec.persona_includes"},
 		{"cost budget", func(m fstest.MapFS) {
@@ -99,7 +99,6 @@ func TestUnsupportedFields(t *testing.T) {
 		{"artifacts", add(scn, "  level: 1\n", "  artifacts:\n    - {system: tracker, on_close: close}\n"), "spec.artifacts"},
 		{"on_failure owner", func(m fstest.MapFS) { replace(m, scn, "on_failure: requester", "on_failure: owner") }, "spec.on_failure=owner"},
 		{"feedback", add(scn, "  level: 1\n", "  feedback: {unit: response}\n"), "spec.feedback"},
-		{"scenario params", add(scn, "  level: 1\n", "  params: {project: SUP}\n"), "scenario.yml: spec.params"},
 		{"approvers", func(m fstest.MapFS) {
 			replace(m, scn, "  autonomy: advise\n", "  autonomy: act\n  action: tracker.add_comment\n  approval: {required: true, approvers: [lead]}\n")
 			replace(m, "agent.yml", "  tools: []\n", "  tools:\n    - {ref: tracker}\n")
@@ -108,8 +107,7 @@ func TestUnsupportedFields(t *testing.T) {
 			replace(m, scn, "  autonomy: advise\n", "  autonomy: act\n  action: tracker.add_comment\n  approval: {required: true, on_timeout: fallback}\n")
 			replace(m, "agent.yml", "  tools: []\n", "  tools:\n    - {ref: tracker}\n")
 		}, "spec.approval.on_timeout=fallback"},
-		{"connection params", add("connections/support.yml", "  status: shadow\n", "  params: {project: SUP}\n"), "connections/support.yml: spec.params"},
-		{"connection knowledge", add("connections/support.yml", "  status: shadow\n", "  knowledge: [{repo: x}]\n"), "connections/support.yml: spec.knowledge"},
+		{"connection knowledge from another repo", add("connections/support.yml", "  status: shadow\n", "  knowledge: [{repo: x, path: y.md}]\n"), "connections/support.yml: knowledge y.md: sources in other repositories"},
 		{"connection budgets", add("connections/support.yml", "  status: shadow\n", "  budgets: {max_runs_per_day: 10}\n"), "connections/support.yml: spec.budgets"},
 		{"shadow card with active connection", func(m fstest.MapFS) {
 			replace(m, "connections/support.yml", "  status: shadow\n", "  status: active\n")

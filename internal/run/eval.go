@@ -27,7 +27,9 @@ type EvalResult struct {
 // checked against the input schema, the model step runs with the scenario tools, the output is checked
 // against the output schema with one retry. Nothing is recorded, no action runs, nobody gets an answer;
 // the action function is withheld from the model, so a case cannot write through it.
-func (e *Engine) Evaluate(ctx context.Context, agent string, scn Scenario, input json.RawMessage) (EvalResult, error) {
+//
+// With a connection the case runs with that team's parameters and knowledge; params override parameters.
+func (e *Engine) Evaluate(ctx context.Context, agent string, scn Scenario, conn *Connection, params map[string]any, input json.RawMessage) (EvalResult, error) {
 	var res EvalResult
 	if len(scn.InputSchema) > 0 {
 		if problems := schema.Check(scn.InputSchema, input); len(problems) > 0 {
@@ -38,7 +40,7 @@ func (e *Engine) Evaluate(ctx context.Context, agent string, scn Scenario, input
 	tools := slices.DeleteFunc(slices.Clone(scn.Tools), func(t string) bool { return scn.Action != "" && t == scn.Action })
 	req := driver.StepRequest{
 		Agent: agent, Scenario: scn.Name, ModelClass: scn.ModelClass, Params: scn.ModelParams,
-		Instructions: scn.Instructions, Input: input, OutputSchema: scn.OutputSchema,
+		Instructions: evalPrompt(scn, conn, params), Input: input, OutputSchema: scn.OutputSchema,
 		Tools: tools, MaxSteps: scn.MaxSteps, MaxToolCalls: scn.MaxToolCalls,
 	}
 	for res.Attempts < 2 {
@@ -124,4 +126,19 @@ func (e *Engine) Judge(ctx context.Context, agent, modelClass string, criteria [
 		}
 	}
 	return out, usage, nil
+}
+
+func evalPrompt(scn Scenario, conn *Connection, override map[string]any) string {
+	params, docs := runContext(scn, conn)
+	if len(override) > 0 {
+		merged := map[string]any{}
+		for k, v := range params {
+			merged[k] = v
+		}
+		for k, v := range override {
+			merged[k] = v
+		}
+		params = merged
+	}
+	return Prompt(scn.Instructions, docs, params)
 }

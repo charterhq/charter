@@ -43,6 +43,8 @@ type Run struct {
 	Status     string  `json:"status"`
 	Error      string  `json:"error"`
 	Seconds    float64 `json:"seconds"`
+	// Params are the scenario parameters of the run, seen as .params.
+	Params map[string]any `json:"-"`
 }
 
 // Parse compiles a template and checks it, so a broken template fails at package load.
@@ -95,7 +97,8 @@ func Failed(text string, run Run, input json.RawMessage) (msg string, ok bool, e
 }
 
 func exec(t *template.Template, block string, run Run, input, output, action json.RawMessage) (string, error) {
-	data := map[string]any{"run": toMap(run), "input": decode(input), "output": decode(output), "action": decode(action)}
+	data := map[string]any{"run": toMap(run), "input": decode(input), "output": decode(output), "action": decode(action),
+		"params": run.Params}
 	var buf bytes.Buffer
 	var err error
 	if block == "" {

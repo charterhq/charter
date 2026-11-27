@@ -7,6 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,5 +115,43 @@ func TestEvalAccess(t *testing.T) {
 	}
 	if code, _ := postEval(t, srv, "ci-token", "scenario=classify&case=nope"); code != http.StatusNotFound {
 		t.Fatalf("unknown case: %d", code)
+	}
+}
+
+func TestEvalWithConnectionContext(t *testing.T) {
+	dir := copyExample(t)
+	edit := func(rel, old, new string) {
+		f := filepath.Join(dir, rel)
+		b, _ := os.ReadFile(f)
+		if !strings.Contains(string(b), old) {
+			t.Fatalf("%s: no %q", rel, old)
+		}
+		_ = os.WriteFile(f, []byte(strings.Replace(string(b), old, new, 1)), 0o644)
+	}
+	edit("scenarios/classify/scenario.yml", "  level: 1\n", "  level: 1\n  params:\n    team: {type: string, default: anyone}\n    tone: {type: string, default: plain}\n")
+	edit("connections/support.yml", "  status: shadow\n", "  status: shadow\n  params: {team: support}\n  knowledge:\n    - {path: knowledge/queues.md}\n")
+	edit("scenarios/classify/eval/cases/refund.yml", "expected:", "params: {tone: polite}\nexpected:")
+	_ = os.MkdirAll(filepath.Join(dir, "knowledge"), 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "knowledge", "queues.md"), []byte("billing queue takes refunds"), 0o644)
+	archive, err := pkg.Pack(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, model := evalServer(t, refundOK, judgePass)
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/eval?scenario=classify&case=refund&connection=support", bytes.NewReader(archive))
+	req.Header.Set("Authorization", "Bearer ci-token")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("eval: %d", resp.StatusCode)
+	}
+	got := model.Instructions[0]
+	for _, want := range []string{`"team": "support"`, `"tone": "polite"`, "billing queue takes refunds"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("instructions lack %s:\n%s", want, got)
+		}
 	}
 }

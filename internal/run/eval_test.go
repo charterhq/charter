@@ -19,7 +19,7 @@ func TestEvaluateWithholdsAction(t *testing.T) {
 	}
 	scn := run.Scenario{Name: "intake", Level: 3, ModelClass: "c", Autonomy: "act", Action: "jira.create_issue", ActionInput: "draft",
 		Tools: []string{"jira.search", "jira.create_issue"}, OutputSchema: json.RawMessage(`{"type": "object"}`)}
-	res, err := eng.Evaluate(context.Background(), "a", scn, json.RawMessage(`{}`))
+	res, err := eng.Evaluate(context.Background(), "a", scn, nil, nil, json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}

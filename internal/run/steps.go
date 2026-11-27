@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -61,19 +62,24 @@ type runRow struct {
 	StartedAt  *time.Time
 	Scn        Scenario
 	Identities map[string]string
+	// Params and Docs are what the run knows beyond its input: the scenario parameters for its
+	// connection and the knowledge files of the agent and the connection.
+	Params map[string]any
+	Docs   []Doc
 }
 
 func (e *Engine) load(ctx context.Context, id uuid.UUID) (runRow, error) {
 	var r runRow
-	var env, scn, usage, ids []byte
+	var env, scn, usage, ids, conn []byte
 	err := e.pool.QueryRow(ctx, `
 		SELECT r.id, r.agent, v.version, r.scenario, r.connection, r.state, r.status, r.envelope,
 		       r.object_key, r.idempotency_key, r.input, r.output, r.usage, r.error,
 		       r.received_at, r.started_at, v.package -> 'scenarios' -> r.scenario,
-		       coalesce(v.package -> 'agent' -> 'spec' -> 'identities', '[]'::jsonb)
+		       coalesce(v.package -> 'agent' -> 'spec' -> 'identities', '[]'::jsonb),
+		       coalesce(v.package -> 'connections' -> r.connection, 'null'::jsonb)
 		FROM runs r JOIN agent_versions v ON v.id = r.agent_version_id
 		WHERE r.id = $1`, id).Scan(&r.ID, &r.Agent, &r.Version, &r.Scenario, &r.Connection, &r.State, &r.Status,
-		&env, &r.ObjectKey, &r.IdemKey, &r.Input, &r.Output, &usage, &r.Error, &r.ReceivedAt, &r.StartedAt, &scn, &ids)
+		&env, &r.ObjectKey, &r.IdemKey, &r.Input, &r.Output, &usage, &r.Error, &r.ReceivedAt, &r.StartedAt, &scn, &ids, &conn)
 	if err != nil {
 		return r, err
 	}
@@ -96,7 +102,25 @@ func (e *Engine) load(ctx context.Context, id uuid.UUID) (runRow, error) {
 	if err := json.Unmarshal(scn, &r.Scn); err != nil {
 		return r, fmt.Errorf("decode scenario: %w", err)
 	}
+	var c *Connection
+	if err := json.Unmarshal(conn, &c); err != nil {
+		return r, fmt.Errorf("decode connection: %w", err)
+	}
+	r.Params, r.Docs = runContext(r.Scn, c)
 	return r, nil
+}
+
+// runContext: the parameters a scenario runs with for a connection and the knowledge it sees,
+// the agent's files first, then the team's.
+func runContext(s Scenario, c *Connection) (map[string]any, []Doc) {
+	params, docs := s.Params, slices.Clone(s.Knowledge)
+	if c != nil {
+		if p, ok := c.ScenarioParams[s.Name]; ok {
+			params = p
+		}
+		docs = append(docs, c.Knowledge...)
+	}
+	return params, docs
 }
 
 func (r runRow) target() driver.Target {
@@ -275,7 +299,7 @@ func (e *Engine) filter(ctx context.Context, r runRow) (outcome, error) {
 func (e *Engine) model(ctx context.Context, r runRow) (outcome, error) {
 	req := driver.StepRequest{
 		RunID: r.ID.String(), Agent: r.Agent, Scenario: r.Scenario, ModelClass: r.Scn.ModelClass, Params: r.Scn.ModelParams,
-		Instructions: r.Scn.Instructions, Input: r.Input, OutputSchema: r.Scn.OutputSchema,
+		Instructions: Prompt(r.Scn.Instructions, r.Docs, r.Params), Input: r.Input, OutputSchema: r.Scn.OutputSchema,
 		Tools: r.Scn.Tools, MaxSteps: r.Scn.MaxSteps, MaxToolCalls: r.Scn.MaxToolCalls, Traceparent: r.Env.Trace.Traceparent(),
 	}
 	if len(r.Error) > len(validationPrefix) && r.Error[:len(validationPrefix)] == validationPrefix {
@@ -605,6 +629,7 @@ func (e *Engine) renderRun(r runRow, status string) render.Run {
 	rr := render.Run{
 		ID: r.ID.String(), ShortID: r.ID.String()[:8], Agent: r.Agent, Version: r.Version, Scenario: r.Scenario,
 		Connection: r.Connection, Autonomy: r.Scn.Autonomy, Status: status, Error: strings.TrimPrefix(r.Error, validationPrefix),
+		Params: r.Params,
 	}
 	if r.StartedAt != nil {
 		rr.Seconds = e.now().Sub(*r.StartedAt).Seconds()

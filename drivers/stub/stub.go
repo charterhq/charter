@@ -23,6 +23,8 @@ type Model struct {
 	Inputs []json.RawMessage
 	// Tools are the tools offered to the model, per call.
 	Tools [][]string
+	// Instructions are the instructions the model got, per call.
+	Instructions []string
 }
 
 func (m *Model) Run(ctx context.Context, req driver.StepRequest) (driver.StepResult, error) {
@@ -30,6 +32,7 @@ func (m *Model) Run(ctx context.Context, req driver.StepRequest) (driver.StepRes
 	m.Calls++
 	m.Inputs = append(m.Inputs, req.Input)
 	m.Tools = append(m.Tools, req.Tools)
+	m.Instructions = append(m.Instructions, req.Instructions)
 	n := m.Calls
 	block := m.Block && n == 1
 	out := "{}"
