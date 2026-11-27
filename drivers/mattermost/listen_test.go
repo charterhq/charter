@@ -111,8 +111,8 @@ type fakeInbox struct {
 
 func (i *fakeInbox) Listeners(context.Context) ([]driver.Listener, error) {
 	return []driver.Listener{
-		{System: System, Account: "sre-manager", Agent: "sre-manager", Connection: "sre", Source: "chat"},
-		{System: System, Account: "sre-manager", Agent: "sre-manager", Connection: "qa", Source: "chat", Places: []string{"qa-chan"}},
+		{System: DefaultSystem, Account: "sre-manager", Agent: "sre-manager", Connection: "sre", Source: "chat"},
+		{System: DefaultSystem, Account: "sre-manager", Agent: "sre-manager", Connection: "qa", Source: "chat", Places: []string{"qa-chan"}},
 		{System: "slack", Account: "other", Agent: "x", Connection: "y", Source: "z"},
 	}, nil
 }
@@ -217,7 +217,7 @@ func TestPostAsAgentBot(t *testing.T) {
 	c := New(Config{URL: srv.URL, Token: "core-token", Bots: map[string]string{"sre-manager": "bot-token"}})
 	ctx := context.Background()
 	target := driver.Target{Channel: "c1"}
-	_, _ = c.Post(ctx, driver.Message{Agent: "sre-manager", Target: target, Text: "a", Identities: map[string]string{System: "sre-manager"}})
+	_, _ = c.Post(ctx, driver.Message{Agent: "sre-manager", Target: target, Text: "a", Identities: map[string]string{DefaultSystem: "sre-manager"}})
 	_, _ = c.Post(ctx, driver.Message{Agent: "alert-triage", Target: target, Text: "b"})
 	if len(auth) != 2 || auth[0] != "Bearer bot-token" || auth[1] != "Bearer core-token" {
 		t.Fatalf("tokens: %v", auth)
@@ -273,7 +273,7 @@ func TestTypingUntilAnswer(t *testing.T) {
 	waitUntil(t, "typing repeats", func() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.typing >= 3 })
 	_, err := c.AskApproval(ctx, driver.ApprovalRequest{Message: driver.Message{Agent: "sre-manager",
 		Target: driver.Target{Channel: "c1", Thread: "p1"}, Text: "Черновик: заголовок X",
-		Identities: map[string]string{System: "sre-manager"}}, WaitID: "w1", Fingerprint: "fp", Deadline: time.Now()})
+		Identities: map[string]string{DefaultSystem: "sre-manager"}}, WaitID: "w1", Fingerprint: "fp", Deadline: time.Now()})
 	if err != nil {
 		t.Fatal(err)
 	}

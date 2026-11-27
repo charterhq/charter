@@ -220,7 +220,7 @@ type ConnectionSpec struct {
 // ConnectionTrigger binds a logical source of the scenarios to this team's events.
 // Keys the core does not know stay for drivers that read the package.
 type ConnectionTrigger struct {
-	// Receiver is the webhook format of an event source: alertmanager or raw (default).
+	// Receiver is the webhook format of an event source: raw (default) or a format driver of the installation.
 	Receiver string `json:"receiver,omitempty"`
 	// Schedule overrides the cron of a schedule source.
 	Schedule string `json:"schedule,omitempty"`

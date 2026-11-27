@@ -120,13 +120,20 @@ func runMain(log *slog.Logger, args []string) error {
 		if err := eng.Start(ctx); err != nil {
 			return err
 		}
-		// A channel driver that receives messages listens as the agents' bots.
-		if rcv, ok := drv.Channel.(driver.Receiver); ok {
-			go func() {
-				if err := rcv.Receive(ctx, eng); err != nil {
-					log.Error("channel driver stopped receiving", "err", err)
-				}
-			}()
+		// Channel drivers that receive messages listen as the agents' bots; drivers with callbacks
+		// (chat buttons) get a path under /v1/drivers/.
+		var callbacks []driver.Callbacks
+		for sys, ch := range drv.Channels {
+			if rcv, ok := ch.(driver.Receiver); ok {
+				go func() {
+					if err := rcv.Receive(ctx, eng); err != nil {
+						log.Error("channel driver stopped receiving", "system", sys, "err", err)
+					}
+				}()
+			}
+			if cb, ok := ch.(driver.Callbacks); ok {
+				callbacks = append(callbacks, cb)
+			}
 		}
 		tokens, err := config.Tokens()
 		if err != nil {
@@ -139,7 +146,7 @@ func runMain(log *slog.Logger, args []string) error {
 		srv := &http.Server{
 			Addr: listen,
 			Handler: (&api.Server{Pool: pool, Engine: eng, Tokens: tokens,
-				ApprovalSecret: []byte(config.Env("CHARTER_APPROVAL_SECRET")), Publishers: config.Publishers(),
+				Publishers: config.Publishers(), Formats: drv.Formats, Callbacks: callbacks,
 				JudgeClass: config.Env("CHARTER_EVAL_JUDGE_CLASS"), Log: log}).Handler(),
 			ReadHeaderTimeout: 10 * time.Second,
 		}

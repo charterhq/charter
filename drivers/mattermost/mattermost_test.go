@@ -70,7 +70,7 @@ func TestApprovalButtonsAreSigned(t *testing.T) {
 	actions := got[0]["props"].(map[string]any)["attachments"].([]any)[0].(map[string]any)["actions"].([]any)
 	approve := actions[0].(map[string]any)["integration"].(map[string]any)
 	ctx := approve["context"].(map[string]any)
-	if approve["url"] != "https://core.example/v1/waits/w1/resolve" {
+	if approve["url"] != "https://core.example/v1/drivers/mattermost/actions/w1" {
 		t.Fatalf("url %v", approve["url"])
 	}
 	if !signing.Verify(secret, "w1", "fp1", "approve", ctx["sig"].(string)) {

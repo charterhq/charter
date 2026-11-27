@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/charterhq/charter/drivers/alertmanager"
 	"github.com/charterhq/charter/internal/driver"
 )
 
@@ -156,7 +157,8 @@ func (j *Journal) Write(_ context.Context, records []json.RawMessage) error {
 // Set returns a full set of stub drivers.
 func Set(m *Model) (driver.Set, *Tools, *Channel, *Journal) {
 	t, c, j := &Tools{}, &Channel{}, &Journal{}
-	return driver.Set{Model: m, Tools: t, Channel: c, Journal: j}, t, c, j
+	return driver.Set{Model: m, Tools: t, Channels: map[string]driver.Channel{"chat": c}, Journal: j,
+		Formats: map[string]driver.Format{"alertmanager": alertmanager.Format{}}}, t, c, j
 }
 
 // Count returns how many records were written.

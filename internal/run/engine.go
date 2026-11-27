@@ -57,14 +57,12 @@ type Engine struct {
 // ErrNoVersion means the agent has no applied package version.
 var ErrNoVersion = errors.New("agent has no applied version")
 
-// ErrWaitClosed means the wait is resolved, expired or does not exist.
-var ErrWaitClosed = errors.New("wait is not open")
-
-// ErrFingerprint means the approval does not match the draft parameters.
-var ErrFingerprint = errors.New("fingerprint does not match the draft")
-
-// ErrSameApprover means the initiator tried to approve their own irreversible action.
-var ErrSameApprover = errors.New("approver must differ from initiator")
+// Decision errors are shared with channel drivers, which turn them into words for people.
+var (
+	ErrWaitClosed   = driver.ErrWaitClosed
+	ErrFingerprint  = driver.ErrFingerprint
+	ErrSameApprover = driver.ErrSameApprover
+)
 
 // ErrNoConnection means the agent's current version does not declare the connection.
 var ErrNoConnection = errors.New("connection is not declared in the agent package")

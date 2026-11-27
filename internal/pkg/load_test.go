@@ -132,8 +132,8 @@ func TestProblems(t *testing.T) {
 		{"schedule on event source", func(m fstest.MapFS) {
 			replace(m, "connections/support.yml", "tickets: {receiver: raw}", "tickets: {schedule: \"0 9 * * *\"}")
 		}, "only meaningful for schedule sources"},
-		{"unknown receiver", func(m fstest.MapFS) {
-			replace(m, "connections/support.yml", "receiver: raw", "receiver: jira")
+		{"bad receiver name", func(m fstest.MapFS) {
+			replace(m, "connections/support.yml", "receiver: raw", "receiver: Jira Webhook")
 		}, "receiver"},
 		{"users on event source", func(m fstest.MapFS) {
 			replace(m, "connections/support.yml", "receiver: raw", "receiver: raw, users: [jane]")

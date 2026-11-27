@@ -29,6 +29,10 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "package has problems", "problems": problems})
 		return
 	}
+	if missing := s.unknownFormats(p); len(missing) > 0 {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "package has problems", "problems": missing})
+		return
+	}
 	stored, err := pkg.Compile(p)
 	if err != nil {
 		writeErr(w, http.StatusUnprocessableEntity, err.Error())
@@ -61,4 +65,21 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 		out["warnings"] = p.Warnings
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// unknownFormats: a connection names a webhook format this core has no driver for. The format schema
+// only checks the name, the installation decides which formats exist.
+func (s *Server) unknownFormats(p *pkg.Package) pkg.Problems {
+	var ps pkg.Problems
+	for _, c := range p.Connections {
+		for src, t := range c.Spec.Triggers {
+			if t.Receiver == "" || t.Receiver == "raw" {
+				continue
+			}
+			if _, ok := s.Formats[t.Receiver]; !ok {
+				ps = append(ps, pkg.Problem{File: c.File, Msg: "trigger " + src + ": this core has no webhook format " + t.Receiver})
+			}
+		}
+	}
+	return ps
 }

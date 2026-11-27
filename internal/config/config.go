@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/charterhq/charter/drivers/alertmanager"
 	"github.com/charterhq/charter/drivers/bifrost"
 	"github.com/charterhq/charter/drivers/clickhouse"
 	"github.com/charterhq/charter/drivers/mattermost"
@@ -154,14 +155,26 @@ func Drivers(log *slog.Logger) (driver.Set, *clickhouse.Journal, error) {
 		if err != nil {
 			return set, nil, err
 		}
-		set.Channel = mattermost.New(mattermost.Config{URL: url, Token: token, CallbackURL: Env("CHARTER_PUBLIC_URL"),
+		system := Env("CHARTER_MM_SYSTEM")
+		if system == "" {
+			system = mattermost.DefaultSystem
+		}
+		set.Channels = map[string]driver.Channel{system: mattermost.New(mattermost.Config{
+			URL: url, Token: token, CallbackURL: Env("CHARTER_PUBLIC_URL"), System: system,
 			Secret: []byte(secret), DefaultChannel: Env("CHARTER_MM_DEFAULT_CHANNEL"),
 			Bots: bots, Refusal: Env("CHARTER_MM_REFUSAL"), Log: log,
 			ApproveLabel: Env("CHARTER_MM_APPROVE_LABEL"), RejectLabel: Env("CHARTER_MM_REJECT_LABEL"),
-			ApprovalNote: Env("CHARTER_MM_APPROVAL_NOTE")})
+			ApprovalNote: Env("CHARTER_MM_APPROVAL_NOTE"),
+			ApprovedText: Env("CHARTER_MM_APPROVED_TEXT"), RejectedText: Env("CHARTER_MM_REJECTED_TEXT"),
+			ClosedText: Env("CHARTER_MM_CLOSED_TEXT"), ChangedText: Env("CHARTER_MM_CHANGED_TEXT"),
+			SameApproverText: Env("CHARTER_MM_SAME_APPROVER_TEXT")})}
 	} else {
 		log.Warn("channel driver is a stub: CHARTER_MM_URL or CHARTER_MM_TOKEN is not set")
-		set.Channel = &stub.Channel{}
+		set.Channels = map[string]driver.Channel{mattermost.DefaultSystem: &stub.Channel{}}
+	}
+	set.Formats = map[string]driver.Format{}
+	for _, f := range []driver.Format{alertmanager.Format{}} {
+		set.Formats[f.Name()] = f
 	}
 
 	if url := Env("CHARTER_CH_URL"); url != "" {

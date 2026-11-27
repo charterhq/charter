@@ -235,7 +235,7 @@ func (e *Engine) step(ctx context.Context, r runRow) (outcome, error) {
 		if r.Env.Shadow && r.Env.Reply == nil {
 			return out, nil // shadow without a shadow channel: journal only
 		}
-		if _, err := e.drv.Channel.Post(ctx, m); err != nil {
+		if _, err := e.post(ctx, m); err != nil {
 			return outcome{}, err
 		}
 		return out, nil
@@ -387,7 +387,7 @@ func (e *Engine) approve(ctx context.Context, r runRow) (outcome, error) {
 	if err := e.pool.QueryRow(ctx, `SELECT action FROM drafts WHERE id = $1`, draftID).Scan(&action); err != nil {
 		return outcome{}, err
 	}
-	if _, err := e.drv.Channel.AskApproval(ctx, driver.ApprovalRequest{
+	if _, err := e.askApproval(ctx, driver.ApprovalRequest{
 		Message: driver.Message{RunID: r.ID.String(), Agent: r.Agent, Connection: r.Connection, ObjectKey: r.ObjectKey, Identities: r.Identities,
 			Target: r.target(), Text: e.answer(r).Text},
 		WaitID: waitID.String(), DraftID: draftID.String(), Fingerprint: fp, Action: action, Deadline: deadline,
@@ -650,7 +650,7 @@ func (e *Engine) notifyFailure(ctx context.Context, r runRow, status string) {
 		text = fmt.Sprintf("**%s**: run `%s` ended with status `%s`, no answer – a human is needed.\n%s",
 			r.Agent, r.ID.String()[:8], status, strings.TrimPrefix(r.Error, validationPrefix))
 	}
-	if _, err := e.drv.Channel.Post(ctx, driver.Message{
+	if _, err := e.post(ctx, driver.Message{
 		RunID: r.ID.String(), Agent: r.Agent, Connection: r.Connection, ObjectKey: r.ObjectKey, Identities: r.Identities, Target: t, Text: text,
 	}); err != nil {
 		e.log.Warn("failure notice not delivered", "run_id", r.ID, "err", err)

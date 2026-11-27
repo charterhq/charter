@@ -28,7 +28,9 @@ type Config struct {
 	// DefaultChannel is used when a message has no target channel.
 	DefaultChannel string
 	HTTP           *http.Client
-	// Bots are agent bot tokens by account (spec.identities, system mattermost). An agent with its
+	// System is the logical system of spec.identities and targets this driver serves (chat).
+	System string
+	// Bots are agent bot tokens by account (spec.identities of System). An agent with its
 	// own bot posts and listens as it; others post as Token.
 	Bots map[string]string
 	// Refusal is the answer to an author the connection does not let talk to the agent.
@@ -40,6 +42,8 @@ type Config struct {
 	Log             *slog.Logger
 	// Labels of the approval card.
 	ApproveLabel, RejectLabel, ApprovalNote string
+	// Texts shown to the person who pressed a button; "%s" is their name where it fits.
+	ApprovedText, RejectedText, ClosedText, ChangedText, SameApproverText string
 	// TypingInterval is how often "typing" is repeated while an agent works on a message (4s);
 	// TypingLimit stops it if no answer comes (10m).
 	TypingInterval, TypingLimit time.Duration
@@ -70,6 +74,24 @@ func New(cfg Config) *Channel {
 	}
 	if cfg.ApprovalNote == "" {
 		cfg.ApprovalNote = "Approve runs the action with exactly the parameters above. Deadline:"
+	}
+	if cfg.System == "" {
+		cfg.System = DefaultSystem
+	}
+	defaults := []struct {
+		v   *string
+		def string
+	}{
+		{&cfg.ApprovedText, "Approved by @%s. The action runs with the shown parameters."},
+		{&cfg.RejectedText, "Rejected by @%s."},
+		{&cfg.ClosedText, "This request is already resolved or expired."},
+		{&cfg.ChangedText, "Parameters changed since the draft was shown. Nothing was done."},
+		{&cfg.SameApproverText, "The initiator cannot approve this action. Ask someone else."},
+	}
+	for _, d := range defaults {
+		if *d.v == "" {
+			*d.v = d.def
+		}
 	}
 	if cfg.TypingInterval == 0 {
 		cfg.TypingInterval = 4 * time.Second
@@ -105,7 +127,7 @@ func (c *Channel) Post(ctx context.Context, m driver.Message) (driver.MessageRef
 
 // token is the agent's own bot token, or the core's bot token.
 func (c *Channel) token(ids map[string]string) string {
-	if t := c.cfg.Bots[ids[System]]; t != "" {
+	if t := c.cfg.Bots[ids[c.cfg.System]]; t != "" {
 		return t
 	}
 	return c.cfg.Token
@@ -130,7 +152,7 @@ func (c *Channel) AskApproval(ctx context.Context, r driver.ApprovalRequest) (dr
 		return map[string]any{
 			"id": id, "name": name,
 			"integration": map[string]any{
-				"url": c.cfg.CallbackURL + "/v1/waits/" + r.WaitID + "/resolve",
+				"url": c.cfg.CallbackURL + "/v1/drivers/" + Name + "/actions/" + r.WaitID,
 				"context": map[string]string{
 					"wait_id": r.WaitID, "fingerprint": r.Fingerprint, "decision": decision,
 					"sig": signing.Sign(c.cfg.Secret, r.WaitID, r.Fingerprint, decision),
@@ -183,7 +205,7 @@ func (c *Channel) createAs(ctx context.Context, token string, p post) (driver.Me
 	if err := json.Unmarshal(raw, &created); err != nil {
 		return driver.MessageRef{}, fmt.Errorf("mattermost: decode post: %w", err)
 	}
-	return driver.MessageRef{System: "mattermost", ID: created.ID}, nil
+	return driver.MessageRef{System: c.cfg.System, ID: created.ID}, nil
 }
 
 // render is the generic presentation of an agent result. Agent-specific templates come later.

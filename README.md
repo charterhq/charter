@@ -84,7 +84,11 @@ A message is a run like any other. The core keeps the conversation (`conversatio
 
 An act scenario in a conversation names the output field with the action arguments, `spec.action_input: draft`. A turn without the field is an answer; a turn with it shows the answer with Approve and Reject buttons bound to the draft fingerprint. A newer message in the conversation replaces a pending draft. After the decision the template block `done` or `rejected` renders the outcome, with `.action.input`, `.action.result` and `.action.by`.
 
-The Mattermost driver listens as each agent bot named in `spec.identities` (`system: mattermost`) with a token in `CHARTER_MM_BOTS`, over a websocket pinged every 30 seconds and reconnected when a pong is late. A post reaches the agent when it names the bot as `@name` (not `@channel` or `@here`) or comes in a direct message; a thread is a conversation, in direct messages the channel is. `channels` on the message source binds a connection to channel IDs. The agent answers as its own bot.
+The Mattermost driver serves the logical system `chat` (`CHARTER_MM_SYSTEM`) and listens as each agent bot named in `spec.identities` with that system and a token in `CHARTER_MM_BOTS`, over a websocket pinged every 30 seconds and reconnected when a pong is late. A post reaches the agent when it names the bot as `@name` (not `@channel` or `@here`) or comes in a direct message; a thread is a conversation, in direct messages the channel is. `channels` on the message source binds a connection to channel IDs. The agent answers as its own bot.
+
+## Drivers
+
+The core never names a tool. Packages name logical systems (`chat` in `spec.identities`), the installation maps them to channel drivers, and tool formats stay in drivers: a webhook format of an event source is a format driver (`alertmanager`; `raw` is built in), chat button presses come to the channel driver under `/v1/drivers/<name>/` and reach the core as a neutral decision. The Mattermost texts for a pressed button are `CHARTER_MM_APPROVED_TEXT`, `CHARTER_MM_REJECTED_TEXT`, `CHARTER_MM_CLOSED_TEXT`, `CHARTER_MM_CHANGED_TEXT`, `CHARTER_MM_SAME_APPROVER_TEXT`.
 
 ## Development
 

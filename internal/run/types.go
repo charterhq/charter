@@ -162,7 +162,7 @@ type Connection struct {
 
 // ConnectionTrigger is the team side of a logical source.
 type ConnectionTrigger struct {
-	// Receiver is the webhook format of an event source: alertmanager or raw (default).
+	// Receiver is the webhook format of an event source: raw (default) or a format driver of the installation.
 	Receiver string `json:"receiver,omitempty"`
 	// Schedule overrides the cron of a schedule source.
 	Schedule string `json:"schedule,omitempty"`

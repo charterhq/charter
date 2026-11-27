@@ -2,12 +2,15 @@
 //
 // Interfaces speak the language of the Charter contract, not of any tool:
 // a driver translates them for Kestra, Bifrost, Mattermost and so on.
+// The core never names a tool: packages name logical systems (chat, tracker), the installation
+// maps them to drivers, and tool formats (webhooks, button callbacks) stay inside drivers.
 package driver
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"time"
 )
 
@@ -153,10 +156,76 @@ type Journal interface {
 	Write(ctx context.Context, records []json.RawMessage) error
 }
 
+// Decision errors: the core refuses a decision on an approval for one of these reasons.
+var (
+	// ErrWaitClosed means the wait is resolved, expired or does not exist.
+	ErrWaitClosed = errors.New("wait is not open")
+	// ErrFingerprint means the approval does not match the draft parameters.
+	ErrFingerprint = errors.New("fingerprint does not match the draft")
+	// ErrSameApprover means the initiator tried to approve their own irreversible action.
+	ErrSameApprover = errors.New("approver must differ from initiator")
+)
+
+// Approvals is the core side of deciding on an approval request; the run engine implements it.
+// A channel driver calls it when a person presses a button.
+type Approvals interface {
+	Resolve(ctx context.Context, waitID, by, fingerprint string, approve bool) error
+}
+
+// Callbacks is a driver that takes requests from its tool over HTTP (chat button presses and the like).
+// The core serves the handler under /v1/drivers/<Name>/ without a bearer token: the driver checks
+// its own signatures.
+type Callbacks interface {
+	Name() string
+	Handler(a Approvals) http.Handler
+}
+
+// Event is one launch an event source delivered, in the core's terms.
+type Event struct {
+	// DeliveryID is unique per delivery: a repeated delivery of the same event is not run twice.
+	DeliveryID string
+	// Source names what sent the event, for the journal.
+	Source string
+	// ObjectKey is the business object the event is about: runs on one object share memory and idempotency.
+	ObjectKey string
+	// Initiator is the sender and a reference on its side (a group of alerts, an issue).
+	Initiator, InitiatorRef string
+	Payload                 json.RawMessage
+	// Reply is where the answer goes, when the source knows it.
+	Reply *Target
+}
+
+// Format splits a webhook of one tool into events. The connection names the format of an event source
+// (connections/*.yml, triggers.<source>.receiver).
+type Format interface {
+	Name() string
+	Split(r *http.Request, body []byte) ([]Event, error)
+}
+
 // Set is the set of drivers the core runs with.
 type Set struct {
-	Model   ModelStep
-	Tools   Tools
-	Channel Channel
-	Journal Journal
+	Model ModelStep
+	Tools Tools
+	// Channels are the drivers that talk to people, by the logical system agents name in
+	// spec.identities and that targets carry (chat).
+	Channels map[string]Channel
+	Journal  Journal
+	// Formats are the webhook formats of event sources besides the built-in raw.
+	Formats map[string]Format
+}
+
+// Channel returns the driver for the first system that has one, or the only channel driver when
+// none of the systems is known (a run without identities in an installation with one chat).
+func (s Set) Channel(systems ...string) (Channel, string) {
+	for _, sys := range systems {
+		if c, ok := s.Channels[sys]; ok && sys != "" {
+			return c, sys
+		}
+	}
+	if len(s.Channels) == 1 {
+		for sys, c := range s.Channels {
+			return c, sys
+		}
+	}
+	return nil, ""
 }

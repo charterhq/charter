@@ -62,10 +62,10 @@ func TestLivePackage(t *testing.T) {
 	}
 	ch := &stub.Channel{}
 	drv := driver.Set{
-		Model:   bifrost.New(bifrost.Config{URL: os.Getenv("CHARTER_BIFROST_URL"), Key: os.Getenv("CHARTER_BIFROST_KEY"), Classes: classes, Params: params}),
-		Tools:   &stub.Tools{},
-		Channel: ch,
-		Journal: journal,
+		Model:    bifrost.New(bifrost.Config{URL: os.Getenv("CHARTER_BIFROST_URL"), Key: os.Getenv("CHARTER_BIFROST_KEY"), Classes: classes, Params: params}),
+		Tools:    &stub.Tools{},
+		Channels: map[string]driver.Channel{"chat": ch},
+		Journal:  journal,
 	}
 	eng, err := run.New(pool, drv, run.Config{FetchPollInterval: 100 * time.Millisecond, FetchCooldown: 20 * time.Millisecond, ShipInterval: time.Second})
 	if err != nil {

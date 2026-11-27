@@ -16,13 +16,11 @@ import (
 
 	"github.com/charterhq/charter/drivers/stub"
 	"github.com/charterhq/charter/internal/api"
+	"github.com/charterhq/charter/internal/driver"
 	"github.com/charterhq/charter/internal/registry"
 	"github.com/charterhq/charter/internal/run"
-	"github.com/charterhq/charter/internal/signing"
 	"github.com/charterhq/charter/internal/testdb"
 )
-
-var secret = []byte("approval-secret")
 
 type env struct {
 	srv  *httptest.Server
@@ -47,7 +45,7 @@ func setup(t *testing.T, scn run.Scenario, outputs ...string) env {
 	}
 	t.Cleanup(func() { _ = eng.StopAndCancel(context.Background()) })
 	s := &api.Server{Pool: pool, Engine: eng, Tokens: map[string]string{"kestra-token": "kestra", "cli-token": "lead"},
-		ApprovalSecret: secret, Log: slog.Default()}
+		Formats: drv.Formats, Log: slog.Default()}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(srv.Close)
 	return env{srv: srv, pool: pool, ch: ch}
@@ -161,7 +159,7 @@ func TestSuspendViaAPI(t *testing.T) {
 	}
 }
 
-func TestApprovalFromChatButton(t *testing.T) {
+func TestApprovalViaAPI(t *testing.T) {
 	scn := run.Scenario{Name: "triage", Level: 1, ModelClass: "c", Autonomy: "act", Action: "jira.create_issue",
 		Approval: &run.Approval{Timeout: run.Duration(time.Hour), OnTimeout: "cancel"}}
 	e := setup(t, scn, `{"summary":"x"}`)
@@ -176,22 +174,52 @@ func TestApprovalFromChatButton(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	path := "/v1/waits/" + req.wait + "/resolve"
-	forged := map[string]any{"user_name": "mallory", "context": map[string]string{
-		"wait_id": req.wait, "fingerprint": req.fp, "decision": "approve", "sig": signing.Sign(secret, req.wait, req.fp, "reject")}}
-	if code, _ := call(t, e, "POST", path, "", forged); code != http.StatusForbidden {
-		t.Fatalf("forged button: %d", code)
+	body := map[string]any{"decision": "approve", "fingerprint": req.fp}
+	if code, _ := call(t, e, "POST", path, "", body); code != http.StatusUnauthorized {
+		t.Fatalf("no token: %d", code)
 	}
-	good := map[string]any{"user_name": "lead", "context": map[string]string{
-		"wait_id": req.wait, "fingerprint": req.fp, "decision": "approve", "sig": signing.Sign(secret, req.wait, req.fp, "approve")}}
-	code, resp := call(t, e, "POST", path, "", good)
-	if code != http.StatusOK || !strings.Contains(resp["ephemeral_text"].(string), "Approved by @lead") {
+	if code, _ := call(t, e, "POST", path, "cli-token", map[string]any{"decision": "approve", "fingerprint": "other"}); code != http.StatusConflict {
+		t.Fatalf("wrong fingerprint: %d", code)
+	}
+	code, resp := call(t, e, "POST", path, "cli-token", body)
+	if code != http.StatusOK || resp["by"] != "lead" {
 		t.Fatalf("approve: %d %v", code, resp)
 	}
 	if status := waitStatus(t, e, id); status != run.StatusOK {
 		t.Fatalf("status %s", status)
 	}
-	code, resp = call(t, e, "POST", path, "", good)
-	if code != http.StatusOK || !strings.Contains(resp["ephemeral_text"].(string), "already resolved") {
-		t.Fatalf("second click: %d %v", code, resp)
+	if code, _ := call(t, e, "POST", path, "cli-token", body); code != http.StatusConflict {
+		t.Fatalf("second decision: %d", code)
+	}
+}
+
+type fakeCallbacks struct{ got chan string }
+
+func (f fakeCallbacks) Name() string { return "fake" }
+func (f fakeCallbacks) Handler(a driver.Approvals) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.got <- r.URL.Path
+		_ = a.Resolve(r.Context(), "nope", "x", "fp", true)
+		w.WriteHeader(http.StatusTeapot)
+	})
+}
+
+func TestDriverCallbacksMounted(t *testing.T) {
+	pool := testdb.New(t)
+	drv, _, _, _ := stub.Set(&stub.Model{})
+	eng, err := run.New(pool, drv, run.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cb := fakeCallbacks{got: make(chan string, 1)}
+	srv := httptest.NewServer((&api.Server{Pool: pool, Engine: eng, Callbacks: []driver.Callbacks{cb}, Log: slog.Default()}).Handler())
+	defer srv.Close()
+	resp, err := http.Post(srv.URL+"/v1/drivers/fake/actions/w1", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusTeapot || <-cb.got != "/actions/w1" {
+		t.Fatalf("callback not served without a token under the driver prefix: %d", resp.StatusCode)
 	}
 }

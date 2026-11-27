@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -23,7 +22,6 @@ import (
 	"github.com/charterhq/charter/internal/driver"
 	"github.com/charterhq/charter/internal/registry"
 	"github.com/charterhq/charter/internal/run"
-	"github.com/charterhq/charter/internal/signing"
 	"github.com/charterhq/charter/internal/telemetry"
 )
 
@@ -33,10 +31,12 @@ type Server struct {
 	Engine *run.Engine
 	// Tokens maps a bearer token to the caller name: drivers, CLI users. People log in via OIDC later.
 	Tokens map[string]string
-	// ApprovalSecret verifies chat button callbacks.
-	ApprovalSecret []byte
 	// Publishers are the callers allowed to publish packages (CI of the package repositories).
 	Publishers map[string]bool
+	// Formats are the webhook formats of event sources besides the built-in raw.
+	Formats map[string]driver.Format
+	// Callbacks are drivers that take requests from their tools (chat buttons), served under /v1/drivers/<name>/.
+	Callbacks []driver.Callbacks
 	// JudgeClass is the model class that judges evaluation criteria; empty means the scenario's class.
 	JudgeClass string
 	Log        *slog.Logger
@@ -52,8 +52,11 @@ func (s *Server) Handler() http.Handler {
 		}
 		_, _ = w.Write([]byte("ok"))
 	})
-	// Chat button callbacks carry their own HMAC instead of a bearer token.
-	r.Post("/v1/waits/{id}/resolve", s.resolve)
+	// Driver callbacks (chat buttons) carry the driver's own signature instead of a bearer token.
+	for _, cb := range s.Callbacks {
+		prefix := "/v1/drivers/" + cb.Name()
+		r.Handle(prefix+"/*", http.StripPrefix(prefix, cb.Handler(s.Engine)))
+	}
 	r.Group(func(r chi.Router) {
 		r.Use(s.auth)
 		r.Post("/v1/launches/{source}", s.launch)
@@ -63,6 +66,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/v1/runs", s.listRuns)
 		r.Get("/v1/runs/{id}", s.getRun)
 		r.Get("/v1/agents", s.listAgents)
+		r.Post("/v1/waits/{id}/resolve", s.resolve)
 		r.Post("/v1/packages", s.publish)
 		r.Post("/v1/eval", s.evalCase)
 		r.Post("/v1/agents/{name}/suspend", s.setSwitch(true))
@@ -111,12 +115,11 @@ func (s *Server) launch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	source := chi.URLParam(r, "source")
-	norm, ok := normalizers[source]
+	envs, ok, err := s.split(source, r, body)
 	if !ok {
 		writeErr(w, http.StatusNotFound, "unknown source "+source)
 		return
 	}
-	envs, err := norm(r, body)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -153,44 +156,35 @@ func acceptStatus(err error) int {
 	return http.StatusInternalServerError
 }
 
-type normalizer func(r *http.Request, body []byte) ([]run.Envelope, error)
-
-var normalizers = map[string]normalizer{
-	"alertmanager": alertmanager,
-	"raw":          raw,
-}
-
-// alertmanager splits an Alertmanager webhook into one envelope per firing alert.
-func alertmanager(_ *http.Request, body []byte) ([]run.Envelope, error) {
-	var wh struct {
-		GroupKey string            `json:"groupKey"`
-		Alerts   []json.RawMessage `json:"alerts"`
+// split turns a webhook into envelopes with the named format: the built-in raw or a format driver.
+func (s *Server) split(format string, r *http.Request, body []byte) ([]run.Envelope, bool, error) {
+	if format == "" || format == "raw" {
+		envs, err := raw(r, body)
+		return envs, true, err
 	}
-	if err := json.Unmarshal(body, &wh); err != nil {
-		return nil, fmt.Errorf("not an Alertmanager webhook: %w", err)
+	f, ok := s.Formats[format]
+	if !ok {
+		return nil, false, nil
 	}
-	var envs []run.Envelope
-	for _, a := range wh.Alerts {
-		var al struct {
-			Status      string `json:"status"`
-			Fingerprint string `json:"fingerprint"`
-			StartsAt    string `json:"startsAt"`
-		}
-		if err := json.Unmarshal(a, &al); err != nil {
-			return nil, err
-		}
-		if al.Status != "firing" {
-			continue
-		}
-		envs = append(envs, run.Envelope{
-			DeliveryID: al.Fingerprint + "@" + al.StartsAt,
-			Trigger:    run.Trigger{Type: "event", Source: "alertmanager"},
-			Object:     run.Object{Key: al.Fingerprint},
-			Initiator:  run.Initiator{Kind: "system", ID: "alertmanager", Ref: wh.GroupKey},
-			Payload:    a,
-		})
+	evs, err := f.Split(r, body)
+	if err != nil {
+		return nil, true, err
 	}
-	return envs, nil
+	envs := make([]run.Envelope, 0, len(evs))
+	for _, ev := range evs {
+		env := run.Envelope{
+			DeliveryID: ev.DeliveryID,
+			Trigger:    run.Trigger{Type: "event", Source: ev.Source},
+			Object:     run.Object{Key: ev.ObjectKey},
+			Payload:    ev.Payload,
+			Reply:      ev.Reply,
+		}
+		if ev.Initiator != "" {
+			env.Initiator = run.Initiator{Kind: "system", ID: ev.Initiator, Ref: ev.InitiatorRef}
+		}
+		envs = append(envs, env)
+	}
+	return envs, true, nil
 }
 
 // raw takes the body as the run input. Headers carry what the source knows:
@@ -216,89 +210,33 @@ func raw(r *http.Request, body []byte) ([]run.Envelope, error) {
 	return []run.Envelope{env}, nil
 }
 
-// resolve answers an approval wait. Two callers:
-//   - a chat button: Mattermost integration request with a signed context;
-//   - CLI or API: bearer token and {"decision", "fingerprint"}.
+// resolve answers an approval wait from the CLI or the API: bearer token and {"decision", "fingerprint"}.
+// Chat buttons reach the core through their channel driver (driver.Callbacks).
 func (s *Server) resolve(w http.ResponseWriter, r *http.Request) {
 	waitID := chi.URLParam(r, "id")
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
 	var req struct {
-		// Mattermost integration request.
-		UserID   string            `json:"user_id"`
-		UserName string            `json:"user_name"`
-		Context  map[string]string `json:"context"`
-		// API request.
 		Decision    string `json:"decision"`
 		Fingerprint string `json:"fingerprint"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "body is not JSON")
 		return
 	}
-
-	var by, decision, fp string
-	chat := req.Context != nil
-	if chat {
-		c := req.Context
-		if c["wait_id"] != waitID || !signing.Verify(s.ApprovalSecret, waitID, c["fingerprint"], c["decision"], c["sig"]) {
-			writeErr(w, http.StatusForbidden, "bad signature")
-			return
-		}
-		by, decision, fp = req.UserName, c["decision"], c["fingerprint"]
-		if by == "" {
-			by = req.UserID
-		}
-	} else {
-		tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		name := ""
-		for t, n := range s.Tokens {
-			if subtle.ConstantTimeCompare([]byte(t), []byte(tok)) == 1 {
-				name = n
-			}
-		}
-		if name == "" {
-			writeErr(w, http.StatusUnauthorized, "bearer token or signed context required")
-			return
-		}
-		by, decision, fp = name, req.Decision, req.Fingerprint
-	}
-	if decision != "approve" && decision != "reject" {
+	if req.Decision != "approve" && req.Decision != "reject" {
 		writeErr(w, http.StatusBadRequest, "decision must be approve or reject")
 		return
 	}
-
-	err = s.Engine.Resolve(r.Context(), waitID, by, fp, decision == "approve")
-	text := ""
+	by := caller(r.Context())
+	err := s.Engine.Resolve(r.Context(), waitID, by, req.Fingerprint, req.Decision == "approve")
 	switch {
-	case err == nil && decision == "approve":
-		text = "Approved by @" + by + ". The action runs with the shown parameters."
 	case err == nil:
-		text = "Rejected by @" + by + "."
-	case errors.Is(err, run.ErrWaitClosed):
-		text = "This request is already resolved or expired."
-	case errors.Is(err, run.ErrFingerprint):
-		text = "Parameters changed since the draft was shown. Nothing was done."
-	case errors.Is(err, run.ErrSameApprover):
-		text = "The initiator cannot approve this action. Ask someone else."
+		writeJSON(w, http.StatusOK, map[string]any{"wait_id": waitID, "decision": req.Decision, "by": by})
+	case errors.Is(err, run.ErrWaitClosed), errors.Is(err, run.ErrFingerprint), errors.Is(err, run.ErrSameApprover):
+		writeErr(w, http.StatusConflict, err.Error())
 	default:
 		s.Log.Error("resolve wait", "wait", waitID, "err", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
-		return
 	}
-	if chat {
-		// Mattermost shows ephemeral_text to the clicking user only.
-		writeJSON(w, http.StatusOK, map[string]any{"ephemeral_text": text})
-		return
-	}
-	status := http.StatusOK
-	if err != nil {
-		status = http.StatusConflict
-	}
-	writeJSON(w, status, map[string]any{"result": text})
 }
 
 func (s *Server) setSwitch(off bool) http.HandlerFunc {

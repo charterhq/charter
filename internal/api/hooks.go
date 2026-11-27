@@ -41,11 +41,11 @@ func (s *Server) hook(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	receiver := ct.Receiver
-	if receiver == "" {
-		receiver = "raw"
+	envs, ok, err := s.split(ct.Receiver, r, body)
+	if !ok {
+		writeErr(w, http.StatusNotImplemented, "this core has no webhook format "+ct.Receiver)
+		return
 	}
-	envs, err := normalizers[receiver](r, body)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return

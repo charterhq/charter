@@ -3,6 +3,7 @@ package api_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -77,6 +78,17 @@ func TestPublish(t *testing.T) {
 		t.Fatalf("publish: %d %v", code, out)
 	}
 	first := out["version_id"]
+	bad := copyExample(t)
+	cf := filepath.Join(bad, "connections", "support.yml")
+	cb, _ := os.ReadFile(cf)
+	_ = os.WriteFile(cf, []byte(strings.Replace(string(cb), "receiver: raw", "receiver: sentry", 1)), 0o644)
+	badArchive, err := pkg.Pack(bad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, out := post("ci-token", badArchive); code != http.StatusUnprocessableEntity || !strings.Contains(fmt.Sprint(out["problems"]), "no webhook format sentry") {
+		t.Fatalf("unknown format: %d %v", code, out)
+	}
 	if code, out := post("ci-token", archive); code != http.StatusOK || out["version_id"] != first {
 		t.Fatalf("same version again: %d %v", code, out)
 	}

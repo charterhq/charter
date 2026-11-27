@@ -18,8 +18,9 @@ import (
 	"github.com/charterhq/charter/internal/driver"
 )
 
-// System is the name agents use for Mattermost in spec.identities.
-const System = "mattermost"
+// DefaultSystem is the logical system the driver serves when the installation does not name one:
+// packages say "chat", not the name of the tool.
+const DefaultSystem = "chat"
 
 // Receive listens as every agent bot the core knows (driver.Inbox.Listeners) and hands messages
 // addressed to a bot to the core: a direct message, or a post that names the bot as @name.
@@ -35,7 +36,7 @@ func (c *Channel) Receive(ctx context.Context, inbox driver.Inbox) error {
 		}
 		routes := map[string][]driver.Listener{}
 		for _, l := range ls {
-			if l.System == System {
+			if l.System == c.cfg.System {
 				routes[l.Account] = append(routes[l.Account], l)
 			}
 		}
@@ -259,7 +260,7 @@ func (b *bot) handle(ctx context.Context, data []byte) {
 	_, dup, err := b.inbox.Converse(ctx, driver.Incoming{
 		Agent: l.Agent, Connection: l.Connection, Source: l.Source,
 		Conversation: conv, MessageID: p.ID, Author: author.Username, Text: text,
-		Reply: driver.Target{System: System, Channel: p.ChannelID, Thread: thread},
+		Reply: driver.Target{System: b.c.cfg.System, Channel: p.ChannelID, Thread: thread},
 	})
 	switch {
 	case errors.Is(err, driver.ErrForbidden):
