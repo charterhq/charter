@@ -124,6 +124,30 @@
   }
 }
 
+/* The same rules on demand: "Меньше анимации" in the profile settings. */
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after,
+.reduce-motion *::backdrop {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
 @keyframes bob {
   50% {
     transform: translateY(-4px) rotate(-2deg);

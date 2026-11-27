@@ -1,25 +1,27 @@
 import { Moon, Sun } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { Boat } from "./Mascot";
+import { UserMenu, type Prefs } from "./UserMenu";
 import { cn } from "@/lib/utils";
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
-export type View = "builder" | "agents" | "journal";
+export type View = "builder" | "agents" | "journal" | "settings";
 
 const NAV: { id: View; label: string }[] = [
   { id: "builder", label: "Создать агента" },
   { id: "agents", label: "Агенты" },
   { id: "journal", label: "Журнал" },
+  { id: "settings", label: "Настройки" },
 ];
 
-export function TopBar(props: {
-  view: View;
-  onView: (v: View) => void;
-  onPalette: () => void;
-  dark: boolean;
-  onTheme: () => void;
-}) {
+export function TopBar(
+  props: Prefs & {
+    view: View;
+    onView: (v: View) => void;
+    onPalette: () => void;
+  },
+) {
   // One pill slides under the active item instead of each item lighting up on its own.
   const nav = useRef<HTMLElement>(null);
   const [pill, setPill] = useState<{ x: number; w: number; animate: boolean } | null>(null);
@@ -74,10 +76,13 @@ export function TopBar(props: {
         Найти или сделать…
         <kbd className="ml-auto rounded border border-border-strong px-1.5 font-mono text-[12px] text-muted-foreground">{isMac ? "⌘K" : "Ctrl\u00a0K"}</kbd>
       </button>
+      <div className="ml-auto sm:ml-0">
+        <UserMenu {...props} />
+      </div>
       <button
-        onClick={props.onTheme}
+        onClick={() => props.onDark(!props.dark)}
         aria-label="Сменить тему"
-        className="ml-auto shrink-0 rounded-md border p-1.5 text-muted-foreground hover:text-foreground sm:ml-0"
+        className="shrink-0 rounded-md border p-1.5 text-muted-foreground hover:text-foreground"
       >
         {props.dark ? <Sun size={15} /> : <Moon size={15} />}
       </button>
