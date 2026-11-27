@@ -85,6 +85,12 @@ func Load(fsys fs.FS) (*Package, Problems) {
 		p.Persona = string(b)
 	}
 
+	for _, id := range a.Identities {
+		if toolNames[strings.ToLower(id.System)] {
+			ps.add("agent.yml", "identities: system %q is a tool name; name the logical system (chat, tracker), the installation maps it to a driver", id.System)
+		}
+	}
+
 	agentTools := map[string][]string{}
 	for _, t := range a.Tools {
 		agentTools[t.Ref] = t.Functions
@@ -179,6 +185,9 @@ func loadScenario(fsys fs.FS, name string, agentTools map[string][]string, ps *P
 	}
 
 	for _, t := range sp.Triggers {
+		if toolNames[strings.ToLower(t.Source)] {
+			ps.add(file, "trigger source %q is a tool name; name the logical source (alerts, tickets), the connection binds it", t.Source)
+		}
 		switch {
 		case t.Type == "schedule" && t.Schedule == "":
 			ps.add(file, "trigger %s: type schedule needs a schedule (cron)", t.Source)
@@ -357,4 +366,12 @@ func readSchema(fsys fs.FS, file string, ps *Problems) json.RawMessage {
 		return nil
 	}
 	return json.RawMessage(b)
+}
+
+// toolNames are tools a package must not name (STD-0003, F1): it says what, the installation says with what.
+var toolNames = map[string]bool{
+	"mattermost": true, "slack": true, "telegram": true, "teams": true, "discord": true,
+	"jira": true, "youtrack": true, "gitlab": true, "github": true, "confluence": true,
+	"alertmanager": true, "prometheus": true, "grafana": true, "sentry": true,
+	"kestra": true, "airflow": true, "n8n": true, "bifrost": true, "librefang": true,
 }

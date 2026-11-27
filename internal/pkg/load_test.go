@@ -132,6 +132,12 @@ func TestProblems(t *testing.T) {
 		{"schedule on event source", func(m fstest.MapFS) {
 			replace(m, "connections/support.yml", "tickets: {receiver: raw}", "tickets: {schedule: \"0 9 * * *\"}")
 		}, "only meaningful for schedule sources"},
+		{"tool name as identity system", func(m fstest.MapFS) {
+			replace(m, "agent.yml", "  tools: []\n", "  tools: []\n  identities:\n    - {system: mattermost, account: bot}\n")
+		}, `system "mattermost" is a tool name`},
+		{"tool name as trigger source", func(m fstest.MapFS) {
+			replace(m, "scenarios/classify/scenario.yml", "source: tickets}", "source: jira}")
+		}, `trigger source "jira" is a tool name`},
 		{"bad receiver name", func(m fstest.MapFS) {
 			replace(m, "connections/support.yml", "receiver: raw", "receiver: Jira Webhook")
 		}, "receiver"},
