@@ -64,6 +64,8 @@ func (c *Channel) Handler(a driver.Approvals) http.Handler {
 			text = c.cfg.ChangedText
 		case errors.Is(err, driver.ErrSameApprover):
 			text = c.cfg.SameApproverText
+		case errors.Is(err, driver.ErrSuspended):
+			text = c.cfg.SuspendedText
 		default:
 			c.log().Error("mattermost: resolve wait", "wait", waitID, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)

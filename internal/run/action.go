@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -37,16 +38,17 @@ type draftRow struct {
 	Action   json.RawMessage
 	Result   json.RawMessage
 	By       string
-	Approval bool // false: the scenario acts without approval
+	Approval bool       // false: the scenario acts without approval
+	CalledAt *time.Time // the action call started; set before the call, never cleared after it ran
 }
 
 func (e *Engine) loadDraft(ctx context.Context, runID uuid.UUID) (draftRow, bool, error) {
 	var d draftRow
 	err := e.pool.QueryRow(ctx, `
 		SELECT d.id, d.action, d.result, d.approved_by,
-		       EXISTS (SELECT 1 FROM waits w WHERE w.draft_id = d.id)
+		       EXISTS (SELECT 1 FROM waits w WHERE w.draft_id = d.id), d.called_at
 		FROM drafts d WHERE d.run_id = $1 ORDER BY d.created_at DESC LIMIT 1`, runID).
-		Scan(&d.ID, &d.Action, &d.Result, &d.By, &d.Approval)
+		Scan(&d.ID, &d.Action, &d.Result, &d.By, &d.Approval, &d.CalledAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return d, false, nil
 	}

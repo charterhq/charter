@@ -43,7 +43,7 @@ type Config struct {
 	// Labels of the approval card.
 	ApproveLabel, RejectLabel, ApprovalNote string
 	// Texts shown to the person who pressed a button; "%s" is their name where it fits.
-	ApprovedText, RejectedText, ClosedText, ChangedText, SameApproverText string
+	ApprovedText, RejectedText, ClosedText, ChangedText, SameApproverText, SuspendedText string
 	// TypingInterval is how often "typing" is repeated while an agent works on a message (4s);
 	// TypingLimit stops it if no answer comes (10m).
 	TypingInterval, TypingLimit time.Duration
@@ -87,6 +87,7 @@ func New(cfg Config) *Channel {
 		{&cfg.ClosedText, "This request is already resolved or expired."},
 		{&cfg.ChangedText, "Parameters changed since the draft was shown. Nothing was done."},
 		{&cfg.SameApproverText, "The initiator cannot approve this action. Ask someone else."},
+		{&cfg.SuspendedText, "The agent is switched off, nothing was done."},
 	}
 	for _, d := range defaults {
 		if *d.v == "" {

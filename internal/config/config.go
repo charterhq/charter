@@ -167,7 +167,7 @@ func Drivers(log *slog.Logger) (driver.Set, *clickhouse.Journal, error) {
 			ApprovalNote: Env("CHARTER_MM_APPROVAL_NOTE"),
 			ApprovedText: Env("CHARTER_MM_APPROVED_TEXT"), RejectedText: Env("CHARTER_MM_REJECTED_TEXT"),
 			ClosedText: Env("CHARTER_MM_CLOSED_TEXT"), ChangedText: Env("CHARTER_MM_CHANGED_TEXT"),
-			SameApproverText: Env("CHARTER_MM_SAME_APPROVER_TEXT")})}
+			SameApproverText: Env("CHARTER_MM_SAME_APPROVER_TEXT"), SuspendedText: Env("CHARTER_MM_SUSPENDED_TEXT")})}
 	} else {
 		log.Warn("channel driver is a stub: CHARTER_MM_URL or CHARTER_MM_TOKEN is not set")
 		set.Channels = map[string]driver.Channel{mattermost.DefaultSystem: &stub.Channel{}}

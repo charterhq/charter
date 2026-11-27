@@ -269,16 +269,32 @@ func (e *Engine) step(ctx context.Context, r runRow) (outcome, error) {
 	return outcome{}, fmt.Errorf("unknown state %q", r.State)
 }
 
-func (e *Engine) filter(ctx context.Context, r runRow) (outcome, error) {
+// switchedOff returns the state of the switch that stops the agent or its connection, or "".
+func switchedOff(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, agent, connection string) (string, error) {
 	var off string
-	err := e.pool.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 		SELECT state FROM switches
-		WHERE agent = $1 AND connection IN ('', $2) AND state <> 'on' LIMIT 1`, r.Agent, r.Connection).Scan(&off)
-	if err == nil {
-		return outcome{next: Recording, status: StatusSuspended, errText: "agent switched off: " + off}, nil
+		WHERE agent = $1 AND connection IN ('', $2) AND state <> 'on' LIMIT 1`, agent, connection).Scan(&off)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return outcome{}, err
+	return off, err
+}
+
+// suspended ends a run of a switched-off agent; the switch is checked again before steps 7 and 8.
+func (e *Engine) suspended(ctx context.Context, r runRow, when string) (outcome, bool, error) {
+	off, err := switchedOff(ctx, e.pool, r.Agent, r.Connection)
+	if err != nil || off == "" {
+		return outcome{}, false, err
+	}
+	return outcome{next: Recording, status: StatusSuspended, errText: "agent switched off" + when + ": " + off}, true, nil
+}
+
+func (e *Engine) filter(ctx context.Context, r runRow) (outcome, error) {
+	if out, off, err := e.suspended(ctx, r, ""); err != nil || off {
+		return out, err
 	}
 	if r.IdemKey != "" {
 		if _, err := e.pool.Exec(ctx, `INSERT INTO idempotency (key, run_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
@@ -357,6 +373,9 @@ func (e *Engine) approve(ctx context.Context, r runRow) (outcome, error) {
 	var waitID, draftID uuid.UUID
 	var fp string
 	var deadline time.Time
+	if out, off, err := e.suspended(ctx, r, " before approval"); err != nil || off {
+		return out, err
+	}
 	err := e.pool.QueryRow(ctx, `
 		SELECT w.id, w.draft_id, d.fingerprint, w.deadline
 		FROM waits w JOIN drafts d ON d.id = w.draft_id
@@ -421,19 +440,51 @@ func (e *Engine) approve(ctx context.Context, r runRow) (outcome, error) {
 	return outcome{stay: true}, nil
 }
 
+// execute calls the action at most once (STD-0006, I4). The call is marked in the database before
+// it starts; a repeated step that finds the mark does not call again: the outcome is unknown and
+// goes to people. Only a call the driver reports as not sent is repeated.
 func (e *Engine) execute(ctx context.Context, r runRow) (outcome, error) {
+	if out, off, err := e.suspended(ctx, r, " before the action"); err != nil || off {
+		return out, err
+	}
 	// with an approval the action runs with the approved draft, exactly; without one, with the output
 	d, hasDraft, err := e.loadDraft(ctx, r.ID)
 	if err != nil {
 		return outcome{}, err
 	}
-	args := d.Action
 	if !hasDraft {
-		args, _ = actionArgs(r)
+		args, _ := actionArgs(r)
+		fp, err := Fingerprint(args)
+		if err != nil {
+			return outcome{}, err
+		}
+		d = draftRow{ID: uuid.New(), Action: args}
+		if _, err := e.pool.Exec(ctx, `INSERT INTO drafts (id, run_id, action, fingerprint, initiator, called_at)
+			VALUES ($1, $2, $3, $4, $5, now())`, d.ID, r.ID, []byte(args), fp, r.Env.Initiator.ID); err != nil {
+			return outcome{}, err
+		}
+	} else {
+		tag, err := e.pool.Exec(ctx, `UPDATE drafts SET called_at = now() WHERE id = $1 AND called_at IS NULL`, d.ID)
+		if err != nil {
+			return outcome{}, err
+		}
+		if tag.RowsAffected() == 0 {
+			return unknownOutcome("the previous attempt was interrupted"), nil
+		}
 	}
-	res, err := e.drv.Tools.Call(ctx, r.Agent, r.Scn.Action, args)
-	if err != nil {
-		return outcome{}, err
+	res, err := e.drv.Tools.Call(driver.AtMostOnce(ctx), r.Agent, r.Scn.Action, d.Action)
+	var te *driver.ToolError
+	switch {
+	case err == nil:
+	case errors.Is(err, driver.ErrNotSent):
+		if _, uerr := e.pool.Exec(ctx, `UPDATE drafts SET called_at = NULL WHERE id = $1`, d.ID); uerr != nil {
+			return outcome{}, uerr
+		}
+		return outcome{}, err // nothing left the core: the step may run again
+	case errors.As(err, &te):
+		return outcome{next: Recording, status: StatusFailed, errText: "action failed, the tool answered: " + te.Text}, nil
+	default:
+		return unknownOutcome(err.Error()), nil
 	}
 	var ref struct {
 		Ref string `json:"ref"`
@@ -443,16 +494,8 @@ func (e *Engine) execute(ctx context.Context, r runRow) (outcome, error) {
 		ref.Ref, _ = Fingerprint(res)
 	}
 	return outcome{next: Responding, apply: func(ctx context.Context, tx pgx.Tx) error {
-		if hasDraft {
-			if _, err := tx.Exec(ctx, `UPDATE drafts SET result = $2 WHERE id = $1`, d.ID, []byte(res)); err != nil {
-				return err
-			}
-		} else {
-			fp, _ := Fingerprint(args)
-			if _, err := tx.Exec(ctx, `INSERT INTO drafts (id, run_id, action, fingerprint, initiator, result)
-				VALUES ($1, $2, $3, $4, $5, $6)`, uuid.New(), r.ID, []byte(args), fp, r.Env.Initiator.ID, []byte(res)); err != nil {
-				return err
-			}
+		if _, err := tx.Exec(ctx, `UPDATE drafts SET result = $2 WHERE id = $1`, d.ID, []byte(res)); err != nil {
+			return err
 		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO artifacts (id, run_id, agent, object_key, system, ref) VALUES ($1, $2, $3, $4, $5, $6)
@@ -461,12 +504,18 @@ func (e *Engine) execute(ctx context.Context, r runRow) (outcome, error) {
 	}}, nil
 }
 
+// unknownOutcome ends a run whose action may or may not have happened: people check by hand.
+func unknownOutcome(why string) outcome {
+	return outcome{next: Recording, status: StatusFailed,
+		errText: "action outcome unknown, it may have been done: check by hand before repeating (" + why + ")"}
+}
+
 func (e *Engine) record(ctx context.Context, r runRow) (outcome, error) {
 	status := r.Status
 	if status == "" {
 		status = StatusOK
 	}
-	if status == StatusFailed || status == StatusInvalid {
+	if status == StatusFailed || status == StatusInvalid || status == StatusSuspended && e.awaited(ctx, r) {
 		e.notifyFailure(ctx, r, status)
 	}
 	finished := e.now()
@@ -654,6 +703,16 @@ func (e *Engine) answer(r runRow) driver.Message {
 	}
 	m.Text = text
 	return m
+}
+
+// awaited says whether people wait for this run: a conversation turn or a drafted action.
+// A switched-off agent stays silent on events nobody asked it about.
+func (e *Engine) awaited(ctx context.Context, r runRow) bool {
+	if r.Env.Conversation != nil {
+		return true
+	}
+	_, ok, err := e.loadDraft(ctx, r.ID)
+	return err == nil && ok
 }
 
 // notifyFailure tells the place the run would answer in that there is no answer (on_failure).

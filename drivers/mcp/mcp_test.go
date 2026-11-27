@@ -1,18 +1,22 @@
 package mcp_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/charterhq/charter/drivers/mcp"
+	"github.com/charterhq/charter/internal/driver"
 )
 
 type searchIn struct {
@@ -118,4 +122,52 @@ func TestLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("%s: %.300s", tool, out)
+}
+
+func TestAtMostOnceNotSent(t *testing.T) {
+	tools := mcp.New(mcp.Config{URL: "http://127.0.0.1:1", Keys: map[string]string{"a": "k"}})
+	_, err := tools.Call(driver.AtMostOnce(context.Background()), "a", "jira.create", json.RawMessage(`{}`))
+	if !errors.Is(err, driver.ErrNotSent) {
+		t.Fatalf("unreachable gateway is not reported as not sent: %v", err)
+	}
+}
+
+// The tool runs, then the connection drops before the answer: the outcome is unknown, not "not sent",
+// and the tool is not called again.
+func TestAtMostOnceLostAnswer(t *testing.T) {
+	srv := sdk.NewServer(&sdk.Implementation{Name: "gw"}, nil)
+	var mu sync.Mutex
+	calls := 0
+	sdk.AddTool(srv, &sdk.Tool{Name: "jira-create"}, func(_ context.Context, _ *sdk.CallToolRequest, _ map[string]any) (*sdk.CallToolResult, any, error) {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+		return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "created"}}}, nil, nil
+	})
+	h := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return srv }, nil)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		if !bytes.Contains(body, []byte(`"tools/call"`)) {
+			h.ServeHTTP(w, r)
+			return
+		}
+		h.ServeHTTP(httptest.NewRecorder(), r) // the tool runs, the answer is lost
+		if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+			_ = conn.Close()
+		}
+	}))
+	t.Cleanup(ts.Close)
+	tools := mcp.New(mcp.Config{URL: ts.URL, Keys: map[string]string{"a": "k"}})
+	defer func() { _ = tools.Close() }()
+
+	_, err := tools.Call(driver.AtMostOnce(context.Background()), "a", "jira.create", json.RawMessage(`{}`))
+	if err == nil || errors.Is(err, driver.ErrNotSent) {
+		t.Fatalf("lost answer must be an unknown outcome: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("tool ran %d times", calls)
+	}
 }

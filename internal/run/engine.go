@@ -62,6 +62,7 @@ var (
 	ErrWaitClosed   = driver.ErrWaitClosed
 	ErrFingerprint  = driver.ErrFingerprint
 	ErrSameApprover = driver.ErrSameApprover
+	ErrSuspended    = driver.ErrSuspended
 )
 
 // ErrNoConnection means the agent's current version does not declare the connection.
@@ -429,17 +430,17 @@ func (e *Engine) Resolve(ctx context.Context, waitID, by, fingerprint string, ap
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var runID uuid.UUID
-	var draftFP, initiator string
+	var agent, connection, draftFP, initiator string
 	var distinct bool
 	err = tx.QueryRow(ctx, `
-		SELECT w.run_id, d.fingerprint, d.initiator,
+		SELECT w.run_id, r.agent, r.connection, d.fingerprint, d.initiator,
 		       coalesce((v.package -> 'scenarios' -> r.scenario -> 'approval' ->> 'distinct_approver')::bool, false)
 		FROM waits w
 		JOIN drafts d ON d.id = w.draft_id
 		JOIN runs r ON r.id = w.run_id
 		JOIN agent_versions v ON v.id = r.agent_version_id
 		WHERE w.id = $1 AND w.state = 'open'
-		FOR UPDATE OF w`, waitID).Scan(&runID, &draftFP, &initiator, &distinct)
+		FOR UPDATE OF w`, waitID).Scan(&runID, &agent, &connection, &draftFP, &initiator, &distinct)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrWaitClosed
 	}
@@ -451,6 +452,21 @@ func (e *Engine) Resolve(ctx context.Context, waitID, by, fingerprint string, ap
 	}
 	if approve && distinct && initiator != "" && by == initiator {
 		return ErrSameApprover
+	}
+	if approve {
+		off, err := switchedOff(ctx, tx, agent, connection)
+		if err != nil {
+			return err
+		}
+		if off != "" {
+			if err := e.cancelWait(ctx, tx, waitID, runID, by, "agent switched off before approval: "+off); err != nil {
+				return err
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return err
+			}
+			return ErrSuspended
+		}
 	}
 
 	state, next, status := "rejected", Responding, StatusCancelled
@@ -471,6 +487,65 @@ func (e *Engine) Resolve(ctx context.Context, waitID, by, fingerprint string, ap
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// cancelWait closes an open wait of a switched-off agent in tx: the run ends suspended and the
+// place it answers in hears that nothing was done (STD-0005, K6).
+func (e *Engine) cancelWait(ctx context.Context, tx pgx.Tx, waitID string, runID uuid.UUID, by, why string) error {
+	if _, err := tx.Exec(ctx, `UPDATE waits SET state = 'cancelled', resolved_by = $2, resolved_at = now() WHERE id = $1`,
+		waitID, by); err != nil {
+		return err
+	}
+	return e.transition(ctx, tx, runID, Approving, Recording, StatusSuspended, why, e.now(), 1)
+}
+
+// CancelWaits closes the open waits of an agent, or of one connection, after it is switched off.
+// It returns how many were closed.
+func (e *Engine) CancelWaits(ctx context.Context, agent, connection, by string) (int, error) {
+	rows, err := e.pool.Query(ctx, `
+		SELECT w.id::text FROM waits w JOIN runs r ON r.id = w.run_id
+		WHERE w.state = 'open' AND r.agent = $1 AND ($2 = '' OR r.connection = $2)`, agent, connection)
+	if err != nil {
+		return 0, err
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, id := range ids {
+		closed, err := e.cancelOne(ctx, id, by)
+		if err != nil {
+			return n, err
+		}
+		if closed {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (e *Engine) cancelOne(ctx context.Context, waitID, by string) (bool, error) {
+	tx, err := e.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var runID uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT run_id FROM waits WHERE id = $1 AND state = 'open' FOR UPDATE`, waitID).Scan(&runID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil // resolved meanwhile
+	}
+	if err != nil {
+		return false, err
+	}
+	if err := e.cancelWait(ctx, tx, waitID, runID, by, "agent switched off while waiting for approval"); err != nil {
+		if errors.Is(err, errStale) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, tx.Commit(ctx)
 }
 
 // transition moves a run from one state to the next in tx and enqueues the next step.

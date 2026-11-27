@@ -231,7 +231,8 @@ func (s *Server) resolve(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 		writeJSON(w, http.StatusOK, map[string]any{"wait_id": waitID, "decision": req.Decision, "by": by})
-	case errors.Is(err, run.ErrWaitClosed), errors.Is(err, run.ErrFingerprint), errors.Is(err, run.ErrSameApprover):
+	case errors.Is(err, run.ErrWaitClosed), errors.Is(err, run.ErrFingerprint), errors.Is(err, run.ErrSameApprover),
+		errors.Is(err, run.ErrSuspended):
 		writeErr(w, http.StatusConflict, err.Error())
 	default:
 		s.Log.Error("resolve wait", "wait", waitID, "err", err)
@@ -261,7 +262,18 @@ func (s *Server) setSwitch(off bool) http.HandlerFunc {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"agent": name, "connection": req.Connection, "off": off})
+		resp := map[string]any{"agent": name, "connection": req.Connection, "off": off}
+		if off {
+			// the switch also stops what already waits for approval (STD-0005, K6)
+			n, err := s.Engine.CancelWaits(r.Context(), name, req.Connection, by)
+			if err != nil {
+				s.Log.Error("cancel waits", "agent", name, "err", err)
+				writeErr(w, http.StatusInternalServerError, "switched off, but open approvals were not cancelled: "+err.Error())
+				return
+			}
+			resp["cancelled_waits"] = n
+		}
+		writeJSON(w, http.StatusOK, resp)
 	}
 }
 

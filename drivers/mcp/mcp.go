@@ -149,19 +149,49 @@ func (t *Tools) drop(agent string, s *session) {
 // retry runs f on the agent's session and once more on a fresh one if the first attempt
 // failed at the transport level (gateway restart, expired session).
 func (t *Tools) retry(ctx context.Context, agent string, f func(*session) error) error {
+	if driver.IsAtMostOnce(ctx) {
+		return t.once(ctx, agent, f)
+	}
 	s, err := t.session(ctx, agent)
 	if err != nil {
-		return err
+		return notSent(err)
 	}
 	if err = f(s); err == nil || ctx.Err() != nil || !transportError(err) {
 		return err
 	}
 	t.drop(agent, s)
 	if s, err = t.session(ctx, agent); err != nil {
-		return err
+		return notSent(err)
 	}
 	return f(s)
 }
+
+// once runs a call that must not repeat when its outcome is unknown. A stale session is found by a
+// ping before the call, not by the call itself. A closed connection during the call may have run
+// the tool, so it is returned as is; a session the server does not know never ran it.
+func (t *Tools) once(ctx context.Context, agent string, f func(*session) error) error {
+	s, err := t.session(ctx, agent)
+	if err != nil {
+		return notSent(err)
+	}
+	if err := s.cs.Ping(ctx, nil); err != nil {
+		t.drop(agent, s)
+		if s, err = t.session(ctx, agent); err != nil {
+			return notSent(err)
+		}
+	}
+	err = f(s)
+	if err == nil || ctx.Err() != nil || !errors.Is(err, sdk.ErrSessionMissing) {
+		return err
+	}
+	t.drop(agent, s)
+	if s, err = t.session(ctx, agent); err != nil {
+		return notSent(err)
+	}
+	return f(s)
+}
+
+func notSent(err error) error { return fmt.Errorf("%w: %w", driver.ErrNotSent, err) }
 
 // transportError says the session is gone and a fresh one may succeed.
 func transportError(err error) bool {
@@ -263,9 +293,7 @@ func (t *Tools) List(ctx context.Context, agent string, names []string) ([]drive
 }
 
 // ToolError is a tool that ran and reported a failure; the model sees it and may try otherwise.
-type ToolError struct{ Text string }
-
-func (e *ToolError) Error() string { return "tool error: " + e.Text }
+type ToolError = driver.ToolError
 
 // Call runs a tool and returns its result as JSON: structured content when the tool gives it,
 // otherwise its text joined, as a JSON string.

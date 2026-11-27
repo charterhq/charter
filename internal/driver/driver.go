@@ -164,7 +164,32 @@ var (
 	ErrFingerprint = errors.New("fingerprint does not match the draft")
 	// ErrSameApprover means the initiator tried to approve their own irreversible action.
 	ErrSameApprover = errors.New("approver must differ from initiator")
+	// ErrSuspended means the agent was switched off: the draft is cancelled, nothing is done.
+	ErrSuspended = errors.New("agent is switched off")
 )
+
+// ErrNotSent means a tool call never reached the tool: repeating it cannot act twice.
+// A driver wraps it around failures before the request leaves, such as a session that does not open.
+var ErrNotSent = errors.New("request not sent")
+
+// ToolError is a tool that ran and reported a failure: a definite answer, not a lost one.
+type ToolError struct{ Text string }
+
+func (e *ToolError) Error() string { return "tool error: " + e.Text }
+
+type atMostOnceKey struct{}
+
+// AtMostOnce marks a tool call that must not be repeated when its outcome is unknown, such as an
+// action with side effects (STD-0006, I4). A driver may still repeat a call that was not sent.
+func AtMostOnce(ctx context.Context) context.Context {
+	return context.WithValue(ctx, atMostOnceKey{}, true)
+}
+
+// IsAtMostOnce says whether the call is marked with AtMostOnce.
+func IsAtMostOnce(ctx context.Context) bool {
+	v, _ := ctx.Value(atMostOnceKey{}).(bool)
+	return v
+}
 
 // Approvals is the core side of deciding on an approval request; the run engine implements it.
 // A channel driver calls it when a person presses a button.

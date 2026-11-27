@@ -75,6 +75,8 @@ type Tools struct {
 	Defs    []driver.ToolDef
 	Results map[string]string
 	Errors  map[string]string
+	// Failures are returned one per call, in order, before Errors and Results apply.
+	Failures map[string][]error
 }
 
 // Results, when set, are returned by Call per tool name instead of the fixed reference.
@@ -97,6 +99,10 @@ func (t *Tools) Call(_ context.Context, agent, tool string, args json.RawMessage
 	defer t.mu.Unlock()
 	t.Calls = append(t.Calls, agent+"/"+tool)
 	t.Args = append(t.Args, string(args))
+	if q := t.Failures[tool]; len(q) > 0 {
+		t.Failures[tool] = q[1:]
+		return nil, q[0]
+	}
 	if e, ok := t.Errors[tool]; ok {
 		return nil, errors.New(e)
 	}

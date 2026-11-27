@@ -92,7 +92,7 @@ The Mattermost driver serves the logical system `chat` (`CHARTER_MM_SYSTEM`) and
 
 ## Drivers
 
-The core never names a tool. Packages name logical systems (`chat` in `spec.identities`), the installation maps them to channel drivers, and tool formats stay in drivers: a webhook format of an event source is a format driver (`alertmanager`; `raw` is built in), chat button presses come to the channel driver under `/v1/drivers/<name>/` and reach the core as a neutral decision. The Mattermost texts for a pressed button are `CHARTER_MM_APPROVED_TEXT`, `CHARTER_MM_REJECTED_TEXT`, `CHARTER_MM_CLOSED_TEXT`, `CHARTER_MM_CHANGED_TEXT`, `CHARTER_MM_SAME_APPROVER_TEXT`.
+The core never names a tool. Packages name logical systems (`chat` in `spec.identities`), the installation maps them to channel drivers, and tool formats stay in drivers: a webhook format of an event source is a format driver (`alertmanager`; `raw` is built in), chat button presses come to the channel driver under `/v1/drivers/<name>/` and reach the core as a neutral decision. The Mattermost texts for a pressed button are `CHARTER_MM_APPROVED_TEXT`, `CHARTER_MM_REJECTED_TEXT`, `CHARTER_MM_CLOSED_TEXT`, `CHARTER_MM_CHANGED_TEXT`, `CHARTER_MM_SAME_APPROVER_TEXT`, `CHARTER_MM_SUSPENDED_TEXT`.
 
 ## Development
 

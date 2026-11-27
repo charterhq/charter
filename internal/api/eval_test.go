@@ -38,7 +38,7 @@ func evalServer(t *testing.T, outputs ...string) (*httptest.Server, *stub.Model)
 	pool := testdb.New(t)
 	model := &stub.Model{Outputs: outputs}
 	drv, _, _, _ := stub.Set(model)
-	eng, err := run.New(pool, drv, run.Config{FetchPollInterval: 50 * time.Millisecond})
+	eng, err := run.New(pool, drv, run.Config{FetchPollInterval: 50 * time.Millisecond, FetchCooldown: 10 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
