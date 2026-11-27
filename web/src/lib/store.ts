@@ -34,7 +34,8 @@ export const STAGE_ARTIFACTS: string[][] = [
 export type Room = {
   id: string;
   title: string;
-  messages: { role: "user" | "assistant"; text: string }[];
+  // `field` on a builder message: the brief field that message filed the answer into.
+  messages: { role: "user" | "assistant"; text: string; field?: BriefField }[];
   // The brief field the builder asked about last in this room: the next answer goes there.
   asking?: BriefField;
 };
@@ -48,9 +49,17 @@ export type Draft = {
   events: string[];
   // The field the builder filled last: the canvas highlights it for a moment.
   lastFilled?: BriefField;
+  // Where each field's value came from: a room, or "canvas" when the person edited it by hand.
+  sources: Partial<Record<BriefField, { room: string; at: number }>>;
+  // A request to show a field on the canvas; `n` grows so the same field can be asked twice.
+  focus?: { field: BriefField; n: number };
+  // Below lg the chat and the agent are tabs: which one is open.
+  pane: "chat" | "agent";
 };
 
-let state: Draft = { name: "Новый агент", rooms: [], room: "", stage: 0, brief: {}, events: [] };
+export const CANVAS = "canvas";
+
+let state: Draft = { name: "Новый агент", rooms: [], room: "", stage: 0, brief: {}, events: [], sources: {}, pane: "chat" };
 const listeners = new Set<() => void>();
 
 export const draft = {
@@ -73,6 +82,24 @@ export const FIELDS = Object.keys(BRIEF_LABELS) as BriefField[];
 
 export function missingFields(d: Draft): BriefField[] {
   return FIELDS.filter((f) => !d.brief[f]);
+}
+
+// Chat → canvas: open the brief and point at the field.
+export function focusField(field: BriefField) {
+  draft.set((d) => ({ focus: { field, n: (d.focus?.n ?? 0) + 1 }, pane: "agent" }));
+}
+
+// Canvas → chat: open the room a value came from.
+export function showRoom(id: string) {
+  if (draft.get().rooms.some((r) => r.id === id)) draft.set({ room: id, pane: "chat" });
+}
+
+export function fillField(field: BriefField, value: string, room: string) {
+  draft.set((d) => ({
+    brief: { ...d.brief, [field]: value },
+    sources: { ...d.sources, [field]: { room, at: Date.now() } },
+    lastFilled: field,
+  }));
 }
 
 export function updateRoom(id: string, patch: Partial<Room>) {

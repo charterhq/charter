@@ -3,6 +3,8 @@ import { Canvas } from "./components/Canvas";
 import { Chat } from "./components/Chat";
 import { CommandPalette, type Action } from "./components/CommandPalette";
 import { TopBar, type View } from "./components/TopBar";
+import { FIELDS, draft, useDraft } from "./lib/store";
+import { cn } from "./lib/utils";
 
 const THEME_KEY = "charter.theme";
 
@@ -18,14 +20,24 @@ export default function App() {
   const [view, setView] = useState<View>("builder");
   const [palette, setPalette] = useState(false);
   const [dark, setDark] = useState(readTheme);
+  // Below lg the chat and the agent are two tabs; from lg up they sit side by side.
+  const d = useDraft();
+  const pane = d.pane;
+  const setPane = (p: typeof pane) => draft.set({ pane: p });
+  const filled = FIELDS.filter((f) => d.brief[f]).length;
 
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", dark);
+    const root = document.documentElement;
+    root.classList.add("theme-switching");
+    root.classList.toggle("dark", dark);
+    // Transitions come back after the new colors are painted.
+    const frame = requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove("theme-switching")));
     try {
       localStorage.setItem(THEME_KEY, dark ? "dark" : "light");
     } catch {
       // the theme still works for this visit
     }
+    return () => cancelAnimationFrame(frame);
   }, [dark]);
 
   const actions: Action[] = [
@@ -40,12 +52,37 @@ export default function App() {
       <div className="flex h-full flex-col">
         <TopBar view={view} onView={setView} onPalette={() => setPalette(true)} dark={dark} onTheme={() => setDark(!dark)} />
         {view === "builder" ? (
-          <main className="grid min-h-0 flex-1 gap-4 p-4 md:grid-cols-[minmax(300px,1fr)_2fr]">
-            <Chat />
-            <Canvas />
+          <main className="flex min-h-0 flex-1 flex-col gap-3 p-3 lg:grid lg:grid-cols-[minmax(300px,1fr)_minmax(0,2fr)] lg:gap-4 lg:p-4">
+            <div role="tablist" aria-label="Билдер" className="grid shrink-0 grid-cols-2 gap-1 rounded-lg border bg-surface p-1 lg:hidden">
+              {(
+                [
+                  ["chat", "Беседа"],
+                  ["agent", `Агент · ${filled}/${FIELDS.length}`],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  role="tab"
+                  aria-selected={pane === id}
+                  onClick={() => setPane(id)}
+                  className={cn(
+                    "rounded-md py-1.5 text-[14px] font-medium tabular-nums text-muted-foreground",
+                    pane === id && "bg-card text-foreground shadow-[inset_0_0_0_1px_var(--border)]",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className={cn("min-h-0 flex-1 flex-col lg:flex", pane === "chat" ? "flex" : "hidden")}>
+              <Chat />
+            </div>
+            <div className={cn("min-h-0 flex-1 flex-col lg:flex", pane === "agent" ? "flex" : "hidden")}>
+              <Canvas />
+            </div>
           </main>
         ) : (
-          <main className="grid flex-1 place-items-center p-4 text-sm text-faint">
+          <main className="grid flex-1 place-items-center p-4 text-center text-[15px] text-faint">
             {view === "agents" ? "Каталог агентов появится, когда ядро отдаст его API" : "Журнал прогонов – следующий шаг"}
           </main>
         )}

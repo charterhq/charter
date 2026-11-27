@@ -27,10 +27,10 @@ export function CommandPalette(props: { open: boolean; onOpenChange: (o: boolean
     >
       <Command.Input
         placeholder="Что сделать?"
-        className="w-full border-b bg-transparent px-4 py-3 text-sm outline-none placeholder:text-faint"
+        className="w-full border-b bg-transparent px-4 py-3 text-[15px] outline-none placeholder:text-faint"
       />
       <Command.List className="max-h-72 overflow-y-auto p-1.5">
-        <Command.Empty className="px-3 py-6 text-center text-sm text-faint">Ничего не нашлось</Command.Empty>
+        <Command.Empty className="px-3 py-6 text-center text-[15px] text-faint">Ничего не нашлось</Command.Empty>
         {props.actions.map((a) => (
           <Command.Item
             key={a.id}
@@ -38,10 +38,10 @@ export function CommandPalette(props: { open: boolean; onOpenChange: (o: boolean
               a.run();
               onOpenChange(false);
             }}
-            className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm text-muted-foreground data-[selected=true]:bg-surface data-[selected=true]:text-foreground"
+            className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-[15px] text-muted-foreground data-[selected=true]:bg-surface data-[selected=true]:text-foreground"
           >
             {a.label}
-            {a.hint && <span className="text-xs text-faint">{a.hint}</span>}
+            {a.hint && <span className="text-[13px] text-faint">{a.hint}</span>}
           </Command.Item>
         ))}
       </Command.List>
