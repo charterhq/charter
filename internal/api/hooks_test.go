@@ -104,7 +104,7 @@ func TestConversationAccess(t *testing.T) {
 	republish(t, e, run.Package{
 		Scenarios: map[string]run.Scenario{"talk": talk},
 		Connections: map[string]run.Connection{"sre": {Name: "sre", Scenarios: []string{"talk"}, Status: run.ConnActive,
-			Triggers: map[string]run.ConnectionTrigger{"chat": {Users: []string{"e.azimov"}}}}},
+			Triggers: map[string]run.ConnectionTrigger{"chat": {Users: []string{"jane.doe"}}}}},
 	})
 	msg := func(author string) map[string]any {
 		return map[string]any{"conversation": "th1", "message_id": "p-" + author, "author": author, "text": "hello",
@@ -113,7 +113,7 @@ func TestConversationAccess(t *testing.T) {
 	if code, out := call(t, e, "POST", "/v1/conversations/alert-triage/sre/chat", "kestra-token", msg("stranger")); code != http.StatusForbidden {
 		t.Fatalf("stranger: %d %v", code, out)
 	}
-	code, out := call(t, e, "POST", "/v1/conversations/alert-triage/sre/chat", "kestra-token", msg("e.azimov"))
+	code, out := call(t, e, "POST", "/v1/conversations/alert-triage/sre/chat", "kestra-token", msg("jane.doe"))
 	if code != http.StatusAccepted {
 		t.Fatalf("allowed author: %d %v", code, out)
 	}

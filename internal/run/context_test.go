@@ -22,7 +22,7 @@ func TestRunSeesConnectionParamsAndKnowledge(t *testing.T) {
 			"sre": {Name: "sre", Scenarios: []string{"triage"}, Status: run.ConnActive,
 				Channels:       map[string]string{"reply": "chan-sre"},
 				Triggers:       map[string]run.ConnectionTrigger{"alerts": {}},
-				Knowledge:      []run.Doc{{Path: "knowledge/sre-people.yml", Text: "lead: e.azimov"}},
+				Knowledge:      []run.Doc{{Path: "knowledge/sre-people.yml", Text: "lead: jane.doe"}},
 				ScenarioParams: map[string]map[string]any{"triage": {"project": "SRE", "queues": []any{"l1"}}}},
 		},
 	})
