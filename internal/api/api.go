@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -39,7 +40,13 @@ type Server struct {
 	Callbacks []driver.Callbacks
 	// JudgeClass is the model class that judges evaluation criteria; empty means the scenario's class.
 	JudgeClass string
-	Log        *slog.Logger
+	// Platform are the callers who see and change every object (the platform team); others see the
+	// objects where they have a role.
+	Platform map[string]bool
+	Log      *slog.Logger
+
+	hubOnce sync.Once
+	events  *hub
 }
 
 // Handler returns the router.
@@ -71,6 +78,19 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/v1/eval", s.evalCase)
 		r.Post("/v1/agents/{name}/suspend", s.setSwitch(true))
 		r.Post("/v1/agents/{name}/resume", s.setSwitch(false))
+
+		r.Post("/v1/agents/{agent}/objects", s.createObject)
+		r.Get("/v1/agents/{agent}/objects", s.listObjects)
+		r.Get("/v1/objects/{id}", s.getObject)
+		r.Patch("/v1/objects/{id}", s.updateObject)
+		r.Delete("/v1/objects/{id}", s.archiveObject)
+		r.Patch("/v1/objects/{id}/state", s.editState)
+		r.Put("/v1/objects/{id}/members", s.setMembers)
+		r.Get("/v1/objects/{id}/events", s.objectEvents)
+		r.Post("/v1/objects/{id}/conversations", s.openConversation)
+		r.Patch("/v1/objects/{id}/conversations/{cid}", s.updateConversation)
+		r.Get("/v1/objects/{id}/conversations/{cid}/messages", s.listMessages)
+		r.Post("/v1/objects/{id}/conversations/{cid}/messages", s.say)
 	})
 	return r
 }
@@ -231,9 +251,14 @@ func (s *Server) resolve(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 		writeJSON(w, http.StatusOK, map[string]any{"wait_id": waitID, "decision": req.Decision, "by": by})
-	case errors.Is(err, run.ErrWaitClosed), errors.Is(err, run.ErrFingerprint), errors.Is(err, run.ErrSameApprover),
-		errors.Is(err, run.ErrSuspended):
-		writeErr(w, http.StatusConflict, err.Error())
+	case errors.Is(err, run.ErrWaitClosed):
+		writeErrCode(w, http.StatusConflict, "wait_closed", err.Error())
+	case errors.Is(err, run.ErrFingerprint):
+		writeErrCode(w, http.StatusConflict, "fingerprint_mismatch", err.Error())
+	case errors.Is(err, run.ErrSameApprover):
+		writeErrCode(w, http.StatusConflict, "same_approver", err.Error())
+	case errors.Is(err, run.ErrSuspended):
+		writeErrCode(w, http.StatusConflict, "suspended", err.Error())
 	default:
 		s.Log.Error("resolve wait", "wait", waitID, "err", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
@@ -369,6 +394,30 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// writeErr answers with an error and a code by status; writeErrCode names a more exact code.
+// The code lets clients tell errors apart without reading the text.
 func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
+	writeErrCode(w, status, statusCode(status), msg)
+}
+
+func writeErrCode(w http.ResponseWriter, status int, code, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg, "code": code})
+}
+
+func statusCode(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return "bad_request"
+	case http.StatusUnauthorized:
+		return "unauthorized"
+	case http.StatusForbidden:
+		return "forbidden"
+	case http.StatusNotFound:
+		return "not_found"
+	case http.StatusConflict:
+		return "conflict"
+	case http.StatusUnprocessableEntity:
+		return "invalid"
+	}
+	return "internal"
 }

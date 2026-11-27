@@ -58,6 +58,18 @@ func Tokens() (map[string]string, error) {
 	return out, nil
 }
 
+// Platform reads CHARTER_PLATFORM: API caller names, separated by commas, who see and change every
+// business object (the platform team).
+func Platform() map[string]bool {
+	out := map[string]bool{}
+	for _, n := range strings.Split(Env("CHARTER_PLATFORM"), ",") {
+		if n = strings.TrimSpace(n); n != "" {
+			out[n] = true
+		}
+	}
+	return out
+}
+
 // Publishers reads CHARTER_PUBLISHERS: API caller names, separated by commas, allowed to publish packages.
 func Publishers() map[string]bool {
 	out := map[string]bool{}

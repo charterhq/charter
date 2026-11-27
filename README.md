@@ -90,6 +90,51 @@ A message is a run like any other. The core keeps the conversation (`conversatio
 
 An act scenario in a conversation names the output field with the action arguments, `spec.action_input: draft`. A turn without the field is an answer; a turn with it shows the answer with Approve and Reject buttons bound to the draft fingerprint. A newer message in the conversation replaces a pending draft. After the decision the template block `done` or `rejected` renders the outcome, with `.action.input`, `.action.result` and `.action.by`.
 
+## Objects
+
+An agent with `memory: object` works on business objects that the core keeps: a draft agent and its brief for an intake agent, say. `spec.object` in the card names the JSON Schema of the object state, a template of the first message of a conversation and the stages people see:
+
+```yaml
+spec:
+  memory: object
+  object:
+    schema: object/schema.json          # title is the label of a field, description the question an empty field asks
+    opener: object/opener.md.tmpl       # .Title, .Missing (fields with .Title, .Question), .Filled, .Total
+    stages:
+      - {id: request, title: Request, artifacts: [{kind: brief, title: Brief}]}
+```
+
+`x-charter-readonly: model` keeps a field away from the model, `x-charter-collection: true` makes an array of objects with an `id` change one item at a time. Every change is checked against the form of the schema (types, no `required` or `minItems`), so a partial state is fine; `required` and `minItems` say what is missing. A new version may add fields to the schema, not remove or retype them: objects outlive versions.
+
+Conversations about an object see the whole state and what it lacks, and only their own history:
+
+```json
+{"conversation": "...", "message": {...}, "history": [...], "object": {"id": "...", "title": "...", "stage": "...", "rev": 3, "state": {...}, "missing": ["cases"]}}
+```
+
+The model changes the state with `state_ops` in its output: `{"op": "set", "field": "trigger", "value": "..."}`, `{"op": "clear", "field": ...}`, `{"op": "put", "field": "cases", "id": "c3", "value": {...}}`, `{"op": "remove", "field": "cases", "id": "c3"}`. Operations the schema does not allow make the output invalid. They are saved when the output is checked, with the conversation and the run as their source; a field a person changed after the model read the state is left as the person set it.
+
+A message source with `receiver: web` in the connection takes messages through the API below instead of a channel driver. The endpoints are experimental until a second agent uses them:
+
+| Method | Path | |
+|---|---|---|
+| `POST` | `/v1/agents/{agent}/objects` | `{connection, title, attrs}`; the caller becomes the owner |
+| `GET` | `/v1/agents/{agent}/objects?connection=&archived=&cursor=&limit=` | objects where the caller has a role |
+| `GET` | `/v1/objects/{id}` | the snapshot: state, fields, missing, sources, stages, members, conversations, `last_seq` |
+| `PATCH` | `/v1/objects/{id}` | `{title, attrs}` |
+| `DELETE` | `/v1/objects/{id}` | archive |
+| `PATCH` | `/v1/objects/{id}/state` | `{fields: {name: {value, rev}}}`; `value: null` clears, 409 `field_conflict` when the same field changed after `rev` |
+| `PUT` | `/v1/objects/{id}/members` | `[{person, role}]`, owners only |
+| `GET` | `/v1/objects/{id}/events?after=` | server-sent events from `after` or `Last-Event-ID` |
+| `POST` | `/v1/objects/{id}/conversations` | `{title}` → the conversation and its first message |
+| `PATCH` | `/v1/objects/{id}/conversations/{cid}` | `{title, archived}` |
+| `GET` | `/v1/objects/{id}/conversations/{cid}/messages?before=&after=&limit=` | |
+| `POST` | `/v1/objects/{id}/conversations/{cid}/messages` | `{message_id, text}` → 202 `{run_id, seq, duplicate}` |
+
+Every change of an object is an event numbered in the transaction of the change: `object`, `members`, `conversation`, `message`, `state`, `run` (`accepted`, `running`, `waiting`, `done` with the status). A stream that needs events no longer kept gets `reset` and reads the snapshot again. Callers named in `CHARTER_PLATFORM` see every object; others get 404 for objects where they have no role. Errors carry a `code` next to the text.
+
+Events are kept 30 days, an object without activity for 30 days goes to the archive, the conversations of an object archived 180 days ago are deleted.
+
 The Mattermost driver serves the logical system `chat` (`CHARTER_MM_SYSTEM`) and listens as each agent bot named in `spec.identities` with that system and a token in `CHARTER_MM_BOTS`, over a websocket pinged every 30 seconds and reconnected when a pong is late. A post reaches the agent when it names the bot as `@name` (not `@channel` or `@here`) or comes in a direct message; a thread is a conversation, in direct messages the channel is. `channels` on the message source binds a connection to channel IDs. The agent answers as its own bot.
 
 ## Drivers

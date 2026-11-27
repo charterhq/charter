@@ -33,6 +33,9 @@ type Package struct {
 	Warnings Problems
 	// Knowledge are the knowledge files of the package (knowledge/...) by path.
 	Knowledge map[string]string
+	// ObjectSchema and ObjectOpener are the files spec.object names, read.
+	ObjectSchema json.RawMessage
+	ObjectOpener string
 }
 
 type Metadata struct {
@@ -65,11 +68,34 @@ type AgentSpec struct {
 	Knowledge       []Knowledge    `json:"knowledge,omitempty"`
 	Budgets         Budgets        `json:"budgets"`
 	Memory          string         `json:"memory"`
+	Object          *ObjectSpec    `json:"object,omitempty"`
 	Scenarios       []ScenarioRef  `json:"scenarios"`
 	Fallback        string         `json:"fallback"`
 	ReviewEveryDays int            `json:"review_every_days"`
 	Exceptions      []Exception    `json:"exceptions,omitempty"`
 	Extra           map[string]any `json:"-"`
+}
+
+// ObjectSpec describes the business object of an agent with memory: object: the schema of its
+// state, the first message of a conversation about it and the stages people see.
+type ObjectSpec struct {
+	Schema      string           `json:"schema"`
+	Opener      string           `json:"opener,omitempty"`
+	Stages      []Stage          `json:"stages,omitempty"`
+	Transitions []map[string]any `json:"transitions,omitempty"`
+}
+
+// Stage is a stage of the object and the artifacts it produces.
+type Stage struct {
+	ID        string         `json:"id"`
+	Title     string         `json:"title"`
+	Artifacts []ArtifactSlot `json:"artifacts,omitempty"`
+}
+
+// ArtifactSlot is an artifact a stage produces.
+type ArtifactSlot struct {
+	Kind  string `json:"kind"`
+	Title string `json:"title"`
 }
 
 type Model struct {

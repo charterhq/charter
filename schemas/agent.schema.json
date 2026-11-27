@@ -92,6 +92,40 @@
           }
         },
         "memory": {"enum": ["none", "thread", "object"]},
+        "object": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema"],
+          "properties": {
+            "schema": {"type": "string", "minLength": 1},
+            "opener": {"type": "string", "minLength": 1},
+            "stages": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "title"],
+                "properties": {
+                  "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+                  "title": {"type": "string", "minLength": 1},
+                  "artifacts": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["kind", "title"],
+                      "properties": {
+                        "kind": {"type": "string", "minLength": 1},
+                        "title": {"type": "string", "minLength": 1}
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "transitions": {"type": "array", "items": {"type": "object"}}
+          }
+        },
         "scenarios": {
           "type": "array",
           "minItems": 1,

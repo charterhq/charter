@@ -222,7 +222,7 @@ func (e *Engine) step(ctx context.Context, r runRow) (outcome, error) {
 	case Modeling:
 		return e.model(ctx, r)
 	case Validating:
-		return e.validate(r), nil
+		return e.validate(ctx, r), nil
 	case Checking:
 		switch {
 		case r.Env.Shadow:
@@ -258,6 +258,9 @@ func (e *Engine) step(ctx context.Context, r runRow) (outcome, error) {
 		}
 		if r.Env.Shadow && r.Env.Reply == nil {
 			return out, nil // shadow without a shadow channel: journal only
+		}
+		if r.Env.Object.ID != "" && r.Env.Reply == nil {
+			return out, nil // a conversation about an object: people read the answer from the object's stream
 		}
 		if _, err := e.post(ctx, m); err != nil {
 			return outcome{}, err
@@ -337,13 +340,24 @@ func (e *Engine) model(ctx context.Context, r runRow) (outcome, error) {
 }
 
 // validate checks the output against the scenario schema; one retry with feedback (STD-0006, step 5).
-func (e *Engine) validate(r runRow) outcome {
+// With an object, the model's state_ops must fit its schema too, and they are saved here: a run with
+// an approval or one that is cancelled never reaches step 9, the state must not wait for it.
+func (e *Engine) validate(ctx context.Context, r runRow) outcome {
 	problem := checkOutput(r.Output, r.Scn.OutputSchema)
+	withObject := problem == "" && r.Scn.Memory == "object" && r.Env.Object.ID != ""
+	if withObject {
+		problem = e.checkStateOps(ctx, r)
+	}
 	if problem != "" && r.Usage.FinishReason == "length" {
 		problem += fmt.Sprintf(" (model stopped at the output limit; reasoning tokens so far: %d)", r.Usage.ReasoningTokens)
 	}
 	if problem == "" {
 		return outcome{next: Checking, apply: func(ctx context.Context, tx pgx.Tx) error {
+			if withObject {
+				if err := e.applyStateOps(ctx, tx, r); err != nil {
+					return err
+				}
+			}
 			_, err := tx.Exec(ctx, `UPDATE runs SET error = '' WHERE id = $1`, r.ID)
 			return err
 		}}

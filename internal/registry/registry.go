@@ -8,10 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/charterhq/charter/internal/object"
 )
 
 // Agent identifies an agent and its owners.
@@ -53,6 +56,9 @@ func ApplySource(ctx context.Context, pool *pgxpool.Pool, a Agent, version, gitS
 		ON CONFLICT (name) DO UPDATE SET team = excluded.team, owner = excluded.owner`, a.Name, a.Team, a.Owner); err != nil {
 		return "", err
 	}
+	if err := checkObjectSchema(ctx, tx, a.Name, b); err != nil {
+		return "", err
+	}
 	id := uuid.New()
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO agent_versions (id, agent, version, git_sha, digest, source_digest, package, applied_at)
@@ -77,6 +83,39 @@ func ApplySource(ctx context.Context, pool *pgxpool.Pool, a Agent, version, gitS
 		return "", err
 	}
 	return id.String(), nil
+}
+
+// ErrSchemaChanged means the new version's object schema would break objects of the current one.
+var ErrSchemaChanged = errors.New("object schema change would break existing objects")
+
+// checkObjectSchema: objects live across versions, so the state schema of a new version may only
+// add fields to the current one (see object.Compatible).
+func checkObjectSchema(ctx context.Context, tx pgx.Tx, agent string, pkg []byte) error {
+	var next struct {
+		Object *struct {
+			Schema string `json:"schema"`
+		} `json:"object"`
+	}
+	if err := json.Unmarshal(pkg, &next); err != nil {
+		return err
+	}
+	var cur string
+	err := tx.QueryRow(ctx, `
+		SELECT coalesce(package -> 'object' ->> 'schema', '') FROM agent_versions
+		WHERE agent = $1 AND applied_at IS NOT NULL ORDER BY applied_at DESC LIMIT 1`, agent).Scan(&cur)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && cur == "" {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if next.Object == nil {
+		return fmt.Errorf("%w: %s drops spec.object", ErrSchemaChanged, agent)
+	}
+	if ps := object.Compatible(json.RawMessage(cur), json.RawMessage(next.Object.Schema)); len(ps) > 0 {
+		return fmt.Errorf("%w: %s", ErrSchemaChanged, strings.Join(ps, "; "))
+	}
+	return nil
 }
 
 // ErrVersionChanged means the version is already applied with different content.

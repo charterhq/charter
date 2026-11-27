@@ -111,11 +111,14 @@ func New(pool *pgxpool.Pool, drv driver.Set, cfg Config) (*Engine, error) {
 	river.AddWorker(workers, &deadlineWorker{e: e})
 	river.AddWorker(workers, &shipWorker{e: e})
 	river.AddWorker(workers, &scheduleWorker{e: e})
+	river.AddWorker(workers, &objectCleanupWorker{e: e})
 
 	periodic := []*river.PeriodicJob{
 		river.NewPeriodicJob(river.PeriodicInterval(cfg.ShipInterval),
 			func() (river.JobArgs, *river.InsertOpts) { return shipArgs{}, nil },
 			&river.PeriodicJobOpts{RunOnStart: true}),
+		river.NewPeriodicJob(river.PeriodicInterval(6*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) { return objectCleanupArgs{}, nil }, nil),
 	}
 	// Periodic jobs run on the River leader only: with several cores one of them schedules.
 	if cfg.ScheduleInterval > 0 {
@@ -194,10 +197,10 @@ func (e *Engine) Accept(ctx context.Context, agent, scenario string, env Envelop
 	id := uuid.New()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO runs (id, agent_version_id, agent, scenario, connection, envelope, object_key,
-		                  idempotency_key, state, received_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		                  idempotency_key, state, received_at, object_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 		id, versionID, agent, scenario, env.Connection, envJSON, env.Object.Key,
-		idempotencyKey(agent, scenario, env), Accepted, env.ReceivedAt); err != nil {
+		idempotencyKey(agent, scenario, env), Accepted, env.ReceivedAt, objectID(env)); err != nil {
 		return "", false, err
 	}
 	if env.DeliveryID != "" {
@@ -315,8 +318,8 @@ func (e *Engine) Listeners(ctx context.Context) ([]driver.Listener, error) {
 				continue
 			}
 			for src, ct := range c.Triggers {
-				if !hasTrigger(a.pkg, c, "message", src) {
-					continue
+				if !hasTrigger(a.pkg, c, "message", src) || ct.Receiver == ReceiverWeb {
+					continue // the core API receives web sources, channel drivers do not listen for them
 				}
 				for _, id := range a.pkg.Agent.Spec.Identities {
 					out = append(out, driver.Listener{System: id.System, Account: id.Account,
@@ -342,6 +345,12 @@ func hasTrigger(p Package, c Connection, typ, source string) bool {
 // Converse takes a message for an agent: the connection must bind the source, the author must be
 // allowed, the source must start exactly one scenario.
 func (e *Engine) Converse(ctx context.Context, m driver.Incoming) (string, bool, error) {
+	return e.converse(ctx, m, Object{})
+}
+
+// converse takes a message; obj is the business object a conversation is about, or nothing: then
+// the conversation is the object (a chat thread).
+func (e *Engine) converse(ctx context.Context, m driver.Incoming, obj Object) (string, bool, error) {
 	scenarios, ct, err := e.Route(ctx, m.Agent, m.Connection, "message", m.Source)
 	if err != nil {
 		return "", false, err
@@ -358,11 +367,17 @@ func (e *Engine) Converse(ctx context.Context, m driver.Incoming) (string, bool,
 	if err != nil {
 		return "", false, err
 	}
+	delivery := m.MessageID
+	if obj.ID == "" {
+		obj = Object{Key: m.Conversation}
+	} else {
+		delivery = m.Conversation + ":" + m.MessageID // a client's message ID is unique within its conversation
+	}
 	env := Envelope{
-		DeliveryID:   m.MessageID,
+		DeliveryID:   delivery,
 		Trigger:      Trigger{Type: "message", Source: m.Source},
 		Connection:   m.Connection,
-		Object:       Object{Key: m.Conversation},
+		Object:       obj,
 		Initiator:    Initiator{Kind: "human", ID: m.Author},
 		Conversation: &Conversation{ID: m.Conversation, MessageID: m.MessageID, Author: m.Author, Text: m.Text},
 		Payload:      payload,
@@ -569,11 +584,53 @@ func (e *Engine) transition(ctx context.Context, tx pgx.Tx, runID uuid.UUID, fro
 		runID, from, attempt, string(to), started); err != nil {
 		return err
 	}
+	if err := e.runStateEvent(ctx, tx, runID, to); err != nil {
+		return err
+	}
 	if to == Done {
 		return nil
 	}
 	_, err = e.client.InsertTx(ctx, tx, stepArgs{RunID: runID.String()}, nil)
 	return err
+}
+
+// objectID is the run's business object of the core, if any.
+func objectID(env Envelope) *uuid.UUID {
+	if env.Object.ID == "" {
+		return nil
+	}
+	id, err := uuid.Parse(env.Object.ID)
+	if err != nil {
+		return nil
+	}
+	return &id
+}
+
+// runStateEvent tells the object's stream that a run about it is working, waits for people or is done.
+func (e *Engine) runStateEvent(ctx context.Context, tx pgx.Tx, runID uuid.UUID, to State) error {
+	state := map[State]string{Preparing: "running", Approving: "waiting", Done: "done"}[to]
+	if state == "" {
+		return nil
+	}
+	var obj *uuid.UUID
+	var status, errText string
+	var env []byte
+	if err := tx.QueryRow(ctx, `SELECT object_id, status, error, envelope FROM runs WHERE id = $1`, runID).
+		Scan(&obj, &status, &errText, &env); err != nil {
+		return err
+	}
+	if obj == nil {
+		return nil
+	}
+	conv := ""
+	var en Envelope
+	if json.Unmarshal(env, &en) == nil && en.Conversation != nil {
+		conv = en.Conversation.ID
+	}
+	if state != "done" {
+		status, errText = "", ""
+	}
+	return runEvent(ctx, tx, *obj, runID, conv, state, status, errText)
 }
 
 // minLevel drops records below a level.

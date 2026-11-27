@@ -16,6 +16,7 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	yaml "go.yaml.in/yaml/v3"
 
+	"github.com/charterhq/charter/internal/object"
 	"github.com/charterhq/charter/internal/render"
 	"github.com/charterhq/charter/internal/run"
 	"github.com/charterhq/charter/internal/schema"
@@ -144,6 +145,7 @@ func Load(fsys fs.FS) (*Package, Problems) {
 	}
 
 	loadKnowledge(fsys, p, &ps)
+	loadObject(fsys, p, &ps)
 	checkParams(p, &ps)
 	checkSupport(p, &ps, &p.Warnings)
 
@@ -248,6 +250,46 @@ func loadScenario(fsys fs.FS, name string, agentTools map[string][]string, ps *P
 	return &s
 }
 
+// loadObject reads the state schema and the opener of an agent with memory: object.
+func loadObject(fsys fs.FS, p *Package, ps *Problems) {
+	a := p.Agent.Spec
+	switch {
+	case a.Memory == "object" && a.Object == nil:
+		ps.add("agent.yml", "memory: object needs spec.object: the schema of the object state")
+		return
+	case a.Memory != "object" && a.Object != nil:
+		ps.add("agent.yml", "spec.object is only meaningful with memory: object")
+		return
+	case a.Object == nil:
+		return
+	}
+	o := a.Object
+	if b, err := fs.ReadFile(fsys, o.Schema); err != nil {
+		ps.add(o.Schema, "object schema file is missing")
+	} else {
+		for _, problem := range object.CheckSchema(b) {
+			ps.add(o.Schema, "%s", problem)
+		}
+		p.ObjectSchema = json.RawMessage(b)
+	}
+	if o.Opener != "" {
+		if b, err := fs.ReadFile(fsys, o.Opener); err != nil {
+			ps.add(o.Opener, "opener template is missing")
+		} else if _, err := object.ParseOpener(o.Opener, string(b)); err != nil {
+			ps.add(o.Opener, "opener template does not parse: %v", err)
+		} else {
+			p.ObjectOpener = string(b)
+		}
+	}
+	seen := map[string]bool{}
+	for _, st := range o.Stages {
+		if seen[st.ID] {
+			ps.add("agent.yml", "spec.object.stages: duplicate stage %q", st.ID)
+		}
+		seen[st.ID] = true
+	}
+}
+
 // checkConnectionTriggers: every trigger of a connection binds a source of a scenario the connection
 // enables, receiver goes with event sources, schedule and input with schedule sources.
 func checkConnectionTriggers(file string, c *Connection, scenarios map[string]*Scenario, ps *Problems) {
@@ -279,8 +321,12 @@ func checkConnectionTriggers(file string, c *Connection, scenarios map[string]*S
 			ps.add(file, "trigger %q is not a source of the scenarios this connection enables", src)
 			continue
 		}
-		if t.Receiver != "" && !k["event"] {
-			ps.add(file, "trigger %q: receiver is only meaningful for event sources", src)
+		switch {
+		case t.Receiver == "" || k["event"]:
+		case k["message"] && t.Receiver != run.ReceiverWeb:
+			ps.add(file, "trigger %q: a message source takes receiver %s (the core API) or none (channel drivers)", src, run.ReceiverWeb)
+		case !k["message"]:
+			ps.add(file, "trigger %q: receiver is only meaningful for event and message sources", src)
 		}
 		if (t.Schedule != "" || t.Input != nil) && !k["schedule"] {
 			ps.add(file, "trigger %q: schedule and input are only meaningful for schedule sources", src)

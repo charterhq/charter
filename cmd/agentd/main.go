@@ -143,13 +143,15 @@ func runMain(log *slog.Logger, args []string) error {
 		if listen == "" {
 			listen = ":8080"
 		}
+		apiSrv := &api.Server{Pool: pool, Engine: eng, Tokens: tokens,
+			Publishers: config.Publishers(), Platform: config.Platform(), Formats: drv.Formats, Callbacks: callbacks,
+			JudgeClass: config.Env("CHARTER_EVAL_JUDGE_CLASS"), Log: log}
 		srv := &http.Server{
-			Addr: listen,
-			Handler: (&api.Server{Pool: pool, Engine: eng, Tokens: tokens,
-				Publishers: config.Publishers(), Formats: drv.Formats, Callbacks: callbacks,
-				JudgeClass: config.Env("CHARTER_EVAL_JUDGE_CLASS"), Log: log}).Handler(),
+			Addr:              listen,
+			Handler:           apiSrv.Handler(),
 			ReadHeaderTimeout: 10 * time.Second,
 		}
+		srv.RegisterOnShutdown(apiSrv.StopStreams) // event streams would hold Shutdown for its whole timeout
 		errc := make(chan error, 1)
 		go func() { errc <- srv.ListenAndServe() }()
 		log.Info("agentd started", "listen", listen)

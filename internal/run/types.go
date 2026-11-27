@@ -80,6 +80,8 @@ type Conversation struct {
 
 type Object struct {
 	Key string `json:"key,omitempty"`
+	// ID is set when the object is a business object of the core (memory: object).
+	ID string `json:"id,omitempty"`
 }
 
 type Initiator struct {
@@ -136,6 +138,8 @@ type Approval struct {
 // Package is the stored agent package as the engine reads it.
 type Package struct {
 	Scenarios map[string]Scenario `json:"scenarios"`
+	// Object is the business object of an agent with memory: object.
+	Object *ObjectSpec `json:"object,omitempty"`
 	// Connections are the teams that use the agent. A package without connections is from before
 	// connections were stored: launches name any connection and nothing is scheduled.
 	Connections map[string]Connection `json:"connections,omitempty"`
@@ -178,6 +182,8 @@ type Connection struct {
 // ConnectionTrigger is the team side of a logical source.
 type ConnectionTrigger struct {
 	// Receiver is the webhook format of an event source: raw (default) or a format driver of the installation.
+	// For a message source, ReceiverWeb means the core's own API receives the messages (conversations
+	// about objects); empty means the channel drivers of the agent identities.
 	Receiver string `json:"receiver,omitempty"`
 	// Schedule overrides the cron of a schedule source.
 	Schedule string `json:"schedule,omitempty"`
@@ -187,6 +193,32 @@ type ConnectionTrigger struct {
 	Users []string `json:"users,omitempty"`
 	// Channels limit a message source to places of the channel driver (channel IDs); empty means everywhere.
 	Channels []string `json:"channels,omitempty"`
+}
+
+// ReceiverWeb is the receiver of a message source served by the core API, not by a channel driver.
+const ReceiverWeb = "web"
+
+// ObjectSpec is the business object of an agent: the schema of its state, the opener template of a
+// conversation and the stages people see.
+type ObjectSpec struct {
+	// Schema is the JSON Schema of the state, kept as text: the stored package is jsonb, which
+	// reorders keys, and the order of the fields is the order people see them in.
+	Schema string  `json:"schema"`
+	Opener string  `json:"opener,omitempty"`
+	Stages []Stage `json:"stages,omitempty"`
+}
+
+// Stage is a stage of an object and the artifacts it produces.
+type Stage struct {
+	ID        string         `json:"id"`
+	Title     string         `json:"title"`
+	Artifacts []ArtifactSlot `json:"artifacts,omitempty"`
+}
+
+// ArtifactSlot is an artifact a stage produces.
+type ArtifactSlot struct {
+	Kind  string `json:"kind"`
+	Title string `json:"title"`
 }
 
 // Connection statuses.

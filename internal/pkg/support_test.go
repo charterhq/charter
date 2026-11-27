@@ -92,7 +92,11 @@ func TestUnsupportedFields(t *testing.T) {
 		{"cost budget", func(m fstest.MapFS) {
 			replace(m, "agent.yml", "concurrency: 5}", "concurrency: 5, max_cost_per_run: 0.5}")
 		}, "spec.budgets.max_cost_per_run"},
-		{"object memory", func(m fstest.MapFS) { replace(m, "agent.yml", "  memory: none\n", "  memory: object\n") }, "spec.memory=object"},
+		{"object memory without an object", func(m fstest.MapFS) { replace(m, "agent.yml", "  memory: none\n", "  memory: object\n") }, "memory: object needs spec.object"},
+		{"object transitions", func(m fstest.MapFS) {
+			withObject(m)
+			replace(m, "agent.yml", "    schema: object/schema.json\n", "    schema: object/schema.json\n    transitions: [{from: a, to: b}]\n")
+		}, "spec.object.transitions"},
 		{"input_change trigger", add(scn, "    - {type: event, source: tickets}\n", "    - {type: input_change, source: other}\n"), "spec.triggers.type=input_change"},
 		{"inputs_from", add(scn, "  level: 1\n", "  inputs_from:\n    - {agent: a, scenario: s, field: f}\n"), "spec.inputs_from"},
 		{"checks", add(scn, "  level: 1\n", "  checks: [links-in-input]\n"), "spec.checks is not supported"},

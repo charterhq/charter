@@ -16,11 +16,23 @@ type Stored struct {
 	Persona     string                    `json:"persona"`
 	Scenarios   map[string]run.Scenario   `json:"scenarios"`
 	Connections map[string]run.Connection `json:"connections,omitempty"`
+	// Object is the business object of an agent with memory: object.
+	Object *run.ObjectSpec `json:"object,omitempty"`
 }
 
 // Compile turns a validated package into the stored form.
 func Compile(p *Package) (json.RawMessage, error) {
 	st := Stored{Agent: p.Agent, Persona: p.Persona, Scenarios: map[string]run.Scenario{}}
+	if o := p.Agent.Spec.Object; o != nil {
+		st.Object = &run.ObjectSpec{Schema: string(p.ObjectSchema), Opener: p.ObjectOpener}
+		for _, s := range o.Stages {
+			rs := run.Stage{ID: s.ID, Title: s.Title}
+			for _, a := range s.Artifacts {
+				rs.Artifacts = append(rs.Artifacts, run.ArtifactSlot{Kind: a.Kind, Title: a.Title})
+			}
+			st.Object.Stages = append(st.Object.Stages, rs)
+		}
+	}
 	for name, s := range p.Scenarios {
 		rs := run.Scenario{
 			Name:         name,

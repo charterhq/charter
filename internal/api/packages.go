@@ -7,6 +7,7 @@ import (
 
 	"github.com/charterhq/charter/internal/pkg"
 	"github.com/charterhq/charter/internal/registry"
+	"github.com/charterhq/charter/internal/run"
 )
 
 // publish takes a package as tar.gz, checks it like agentctl validate and stores the version.
@@ -53,6 +54,10 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
+	if errors.Is(err, registry.ErrSchemaChanged) {
+		writeErrCode(w, http.StatusUnprocessableEntity, "schema_changed", err.Error())
+		return
+	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -73,7 +78,7 @@ func (s *Server) unknownFormats(p *pkg.Package) pkg.Problems {
 	var ps pkg.Problems
 	for _, c := range p.Connections {
 		for src, t := range c.Spec.Triggers {
-			if t.Receiver == "" || t.Receiver == "raw" {
+			if t.Receiver == "" || t.Receiver == "raw" || t.Receiver == run.ReceiverWeb {
 				continue
 			}
 			if _, ok := s.Formats[t.Receiver]; !ok {

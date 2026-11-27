@@ -2,6 +2,7 @@ package registry_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -48,5 +49,35 @@ func TestVersionIsImmutableBySource(t *testing.T) {
 	}
 	if _, err := registry.ApplySource(ctx, pool, a, "1.0.0", "sha", "src2", []byte(`{"scenarios":{},"v":3}`)); !errors.Is(err, registry.ErrVersionChanged) {
 		t.Fatalf("other source must be refused, got %v", err)
+	}
+}
+
+// Objects live across versions: a new version may add state fields, not remove or retype them.
+func TestObjectSchemaOnlyGrows(t *testing.T) {
+	pool := testdb.New(t)
+	ctx := context.Background()
+	a := registry.Agent{Name: "builder", Team: "t", Owner: "o"}
+	pkg := func(schema string) []byte {
+		b, _ := json.Marshal(map[string]any{"scenarios": map[string]any{}, "object": map[string]any{"schema": schema}})
+		return b
+	}
+	v1 := `{"type":"object","properties":{"work":{"type":"string"}}}`
+	if _, err := registry.Apply(ctx, pool, a, "1.0.0", "sha", pkg(v1)); err != nil {
+		t.Fatal(err)
+	}
+	grown := `{"type":"object","properties":{"work":{"type":"string","title":"Work"},"trigger":{"type":"string"}}}`
+	if _, err := registry.Apply(ctx, pool, a, "1.1.0", "sha", pkg(grown)); err != nil {
+		t.Fatalf("adding a field: %v", err)
+	}
+	for v, schema := range map[string]string{
+		"1.2.0": `{"type":"object","properties":{"trigger":{"type":"string"}}}`,
+		"1.3.0": `{"type":"object","properties":{"work":{"type":"array"},"trigger":{"type":"string"}}}`,
+	} {
+		if _, err := registry.Apply(ctx, pool, a, v, "sha", pkg(schema)); !errors.Is(err, registry.ErrSchemaChanged) {
+			t.Fatalf("%s: want ErrSchemaChanged, got %v", v, err)
+		}
+	}
+	if _, err := registry.Apply(ctx, pool, a, "2.0.0", "sha", []byte(`{"scenarios":{}}`)); !errors.Is(err, registry.ErrSchemaChanged) {
+		t.Fatalf("dropping spec.object: %v", err)
 	}
 }

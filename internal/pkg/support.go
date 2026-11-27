@@ -63,7 +63,11 @@ var Fields = []FieldSupport{
 	{"Agent", "spec.budgets.concurrency", Unenforced, "not limited"},
 	{"Agent", "spec.memory=none", Executed, ""},
 	{"Agent", "spec.memory=thread", Executed, "conversation history goes into the input"},
-	{"Agent", "spec.memory=object", Unsupported, "no object state"},
+	{"Agent", "spec.memory=object", Executed, "state by spec.object.schema, conversations about an object see the state and their own history"},
+	{"Agent", "spec.object.schema", Executed, "the model changes the state with state_ops; the form is checked on every change, completeness says what is missing"},
+	{"Agent", "spec.object.opener", Executed, "the first message of a conversation, rendered without a model"},
+	{"Agent", "spec.object.stages", Executed, "shown to people with their artifacts"},
+	{"Agent", "spec.object.transitions", Unsupported, "stages are not changed by the core yet"},
 	{"Agent", "spec.scenarios.name", Executed, ""},
 	{"Agent", "spec.scenarios.from", Unsupported, "no scenario templates"},
 	{"Agent", "spec.scenarios.with", Unsupported, "no scenario templates"},
@@ -152,7 +156,9 @@ func checkSupport(p *Package, ps, ws *Problems) {
 	unsupported(file, "Agent", "spec.persona_includes", len(a.PersonaIncludes) > 0)
 	unsupported(file, "Agent", "spec.skills", len(a.Skills) > 0)
 	unsupported(file, "Agent", "spec.budgets.max_cost_per_run", a.Budgets.MaxCostPerRun > 0)
-	unsupported(file, "Agent", "spec.memory=object", a.Memory == "object")
+	if a.Object != nil {
+		unsupported(file, "Agent", "spec.object.transitions", len(a.Object.Transitions) > 0)
+	}
 	unenforced(file, "Agent", "spec.data_classes", len(a.DataClasses) > 0)
 	unenforced(file, "Agent", "spec.budgets.timeout", a.Budgets.Timeout != "")
 	unenforced(file, "Agent", "spec.budgets.max_tokens_per_run", a.Budgets.MaxTokensPerRun > 0)
