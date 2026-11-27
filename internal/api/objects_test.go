@@ -126,6 +126,9 @@ func until(t *testing.T, c <-chan sse, typ string, match func(sse) bool) []sse {
 func TestObjectsOverHTTP(t *testing.T) {
 	e, _ := setupObjects(t, `{"reply":"Noted. What starts it?","state_ops":[{"op":"set","field":"work","value":"triage alerts"}]}`)
 
+	if code, me := call(t, e, http.MethodGet, "/v1/me", "alice-token", nil); code != http.StatusOK || me["person"] != "alice" || me["platform"] != false {
+		t.Fatalf("me: %d %v", code, me)
+	}
 	code, obj := call(t, e, http.MethodPost, "/v1/agents/builder/objects", "alice-token",
 		map[string]any{"connection": "platform", "title": "New agent", "attrs": map[string]any{"team": "sre"}})
 	if code != http.StatusCreated || obj["stage"] != "request" {

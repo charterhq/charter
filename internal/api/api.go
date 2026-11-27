@@ -79,6 +79,7 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/v1/agents/{name}/suspend", s.setSwitch(true))
 		r.Post("/v1/agents/{name}/resume", s.setSwitch(false))
 
+		r.Get("/v1/me", s.me)
 		r.Post("/v1/agents/{agent}/objects", s.createObject)
 		r.Get("/v1/agents/{agent}/objects", s.listObjects)
 		r.Get("/v1/objects/{id}", s.getObject)
@@ -386,6 +387,14 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte(`{"agents":` + string(doc) + `}`))
+}
+
+// me says who the caller is: the name of the token now, the person from OIDC later.
+//
+//	GET /v1/me → {"person", "platform"}
+func (s *Server) me(w http.ResponseWriter, r *http.Request) {
+	who := caller(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{"person": who, "platform": s.Platform[who]})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

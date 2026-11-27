@@ -118,6 +118,7 @@ A message source with `receiver: web` in the connection takes messages through t
 
 | Method | Path | |
 |---|---|---|
+| `GET` | `/v1/me` | `{person, platform}`: who the caller is |
 | `POST` | `/v1/agents/{agent}/objects` | `{connection, title, attrs}`; the caller becomes the owner |
 | `GET` | `/v1/agents/{agent}/objects?connection=&archived=&cursor=&limit=` | objects where the caller has a role |
 | `GET` | `/v1/objects/{id}` | the snapshot: state, fields, missing, sources, stages, members, conversations, `last_seq` |
