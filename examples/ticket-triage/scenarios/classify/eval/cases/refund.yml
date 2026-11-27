@@ -5,4 +5,5 @@ expected:
   category: billing
   queue: billing
 checks:
-  - category equals expected
+  - {path: reason, matches: "(?i)charge|refund"}
+  - the reason mentions that the customer was charged twice

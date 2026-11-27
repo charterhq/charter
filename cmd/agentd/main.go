@@ -139,7 +139,8 @@ func runMain(log *slog.Logger, args []string) error {
 		srv := &http.Server{
 			Addr: listen,
 			Handler: (&api.Server{Pool: pool, Engine: eng, Tokens: tokens,
-				ApprovalSecret: []byte(config.Env("CHARTER_APPROVAL_SECRET")), Publishers: config.Publishers(), Log: log}).Handler(),
+				ApprovalSecret: []byte(config.Env("CHARTER_APPROVAL_SECRET")), Publishers: config.Publishers(),
+				JudgeClass: config.Env("CHARTER_EVAL_JUDGE_CLASS"), Log: log}).Handler(),
 			ReadHeaderTimeout: 10 * time.Second,
 		}
 		errc := make(chan error, 1)

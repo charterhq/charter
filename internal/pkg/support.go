@@ -100,7 +100,7 @@ var Fields = []FieldSupport{
 	{"Scenario", "spec.artifacts", Unsupported, "actions are recorded, nothing is done on object close"},
 	{"Scenario", "spec.on_failure=requester", Executed, ""},
 	{"Scenario", "spec.on_failure=owner", Unsupported, "failures go to the place the run answers in"},
-	{"Scenario", "spec.eval", Unenforced, "cases must exist, they are not run"},
+	{"Scenario", "spec.eval", Executed, "agentctl eval runs the cases through the core steps, without the action and the answer"},
 	{"Scenario", "spec.feedback", Unsupported, "no feedback collection"},
 	{"Scenario", "spec.params", Unsupported, "not given to the run"},
 	{"Scenario", "spec.response", Executed, ""},
@@ -182,7 +182,6 @@ func checkSupport(p *Package, ps, ws *Problems) {
 		unsupported(file, "Scenario", "spec.feedback", s.Feedback != nil)
 		unsupported(file, "Scenario", "spec.params", len(s.Params) > 0)
 		unenforced(file, "Scenario", "spec.idempotency.key", len(s.Idempotency.Key) > 0)
-		unenforced(file, "Scenario", "spec.eval", s.Eval != "")
 	}
 
 	for _, name := range sortedKeys(p.Connections) {

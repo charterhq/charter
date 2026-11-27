@@ -129,6 +129,7 @@ type Scenario struct {
 	OutputSchema json.RawMessage `json:"-"`
 	Template     string          `json:"-"`
 	EvalCases    int             `json:"-"`
+	Cases        []Case          `json:"-"`
 }
 
 type ScenarioSpec struct {

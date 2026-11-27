@@ -31,6 +31,14 @@ go run ./cmd/agentctl validate examples/ticket-triage
 
 The format is ahead of the core. `agentctl fields` prints what this core does with each field: `executed`, `described` (kept for people and review), `unenforced` (required by the format, not enforced yet: validation warns) or `unsupported` (validation fails when the field is set). A package never passes with a field the core would silently ignore.
 
+## Evaluate a package
+
+```sh
+CHARTER_URL=... CHARTER_TOKEN=... go run ./cmd/agentctl eval examples/ticket-triage
+```
+
+Every case of `eval/cases/*.yml` goes through the core the way a live run goes: input schema, the model step with the scenario tools, output schema with one retry. Nothing is published or recorded, no action runs, nobody gets an answer, and the action function is not offered to the model. `expected` fields and typed checks (`path` with `equals`, `matches`, `contains`, `exists`; `action`) are checked by code; a check written as plain text is a criterion for the judge model (`CHARTER_EVAL_JUDGE_CLASS`, the scenario model class by default). Evaluation calls the model and costs money, so it is open to package publishers only.
+
 ## Run
 
 ```sh

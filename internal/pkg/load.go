@@ -229,11 +229,11 @@ func loadScenario(fsys fs.FS, name string, agentTools map[string][]string, ps *P
 		ps.add(file, "approval is only meaningful for autonomy act")
 	}
 
-	cases, _ := fs.Glob(fsys, path.Join(dir, sp.Eval, "cases", "*.yml"))
-	if len(cases) == 0 {
+	s.Cases = loadCases(fsys, path.Join(dir, sp.Eval), s.InputSchema, ps)
+	if len(s.Cases) == 0 {
 		ps.add(path.Join(dir, sp.Eval), "evaluation set has no cases (cases/*.yml)")
 	}
-	s.EvalCases = len(cases)
+	s.EvalCases = len(s.Cases)
 	return &s
 }
 

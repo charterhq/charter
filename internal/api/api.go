@@ -37,6 +37,8 @@ type Server struct {
 	ApprovalSecret []byte
 	// Publishers are the callers allowed to publish packages (CI of the package repositories).
 	Publishers map[string]bool
+	// JudgeClass is the model class that judges evaluation criteria; empty means the scenario's class.
+	JudgeClass string
 	Log        *slog.Logger
 }
 
@@ -62,6 +64,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/v1/runs/{id}", s.getRun)
 		r.Get("/v1/agents", s.listAgents)
 		r.Post("/v1/packages", s.publish)
+		r.Post("/v1/eval", s.evalCase)
 		r.Post("/v1/agents/{name}/suspend", s.setSwitch(true))
 		r.Post("/v1/agents/{name}/resume", s.setSwitch(false))
 	})

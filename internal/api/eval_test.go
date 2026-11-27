@@ -1,0 +1,116 @@
+package api_test
+
+import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/charterhq/charter/drivers/stub"
+	"github.com/charterhq/charter/internal/api"
+	"github.com/charterhq/charter/internal/pkg"
+	"github.com/charterhq/charter/internal/run"
+	"github.com/charterhq/charter/internal/testdb"
+)
+
+const (
+	refundOK    = `{"category": "billing", "queue": "billing", "reason": "charged twice, wants a refund"}`
+	refundWrong = `{"category": "question", "queue": "l1", "reason": "asks about a refund"}`
+	judgePass   = `{"verdicts": [{"criterion": "x", "pass": true, "reason": "says charged twice"}]}`
+)
+
+type evalOut struct {
+	Pass     bool              `json:"pass"`
+	Problem  string            `json:"problem"`
+	Attempts int               `json:"attempts"`
+	Checks   []pkg.CheckResult `json:"checks"`
+}
+
+func evalServer(t *testing.T, outputs ...string) (*httptest.Server, *stub.Model) {
+	t.Helper()
+	pool := testdb.New(t)
+	model := &stub.Model{Outputs: outputs}
+	drv, _, _, _ := stub.Set(model)
+	eng, err := run.New(pool, drv, run.Config{FetchPollInterval: 50 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &api.Server{Pool: pool, Engine: eng, Tokens: map[string]string{"ci-token": "gitlab-ci", "cli-token": "lead"},
+		Publishers: map[string]bool{"gitlab-ci": true}, Log: slog.Default()}
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	return srv, model
+}
+
+func postEval(t *testing.T, srv *httptest.Server, token, query string) (int, evalOut) {
+	t.Helper()
+	archive, err := pkg.Pack("../../examples/ticket-triage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/eval?"+query, bytes.NewReader(archive))
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(resp.Body)
+	var out evalOut
+	_ = json.Unmarshal(raw, &out)
+	return resp.StatusCode, out
+}
+
+func TestEvalPasses(t *testing.T) {
+	srv, model := evalServer(t, refundOK, judgePass)
+	code, out := postEval(t, srv, "ci-token", "scenario=classify&case=refund")
+	if code != http.StatusOK || !out.Pass || out.Attempts != 1 {
+		t.Fatalf("eval: %d %+v", code, out)
+	}
+	if len(out.Checks) != 4 { // expected category, expected queue, matches, judge
+		t.Fatalf("checks: %+v", out.Checks)
+	}
+	if model.CallCount() != 2 {
+		t.Fatalf("model calls %d, want case + judge", model.CallCount())
+	}
+	var judged map[string]any
+	_ = json.Unmarshal(model.InputAt(1), &judged)
+	if judged["criteria"].([]any)[0] != "the reason mentions that the customer was charged twice" || judged["output"] == nil {
+		t.Fatalf("judge input: %s", model.InputAt(1))
+	}
+}
+
+func TestEvalFailsOnExpected(t *testing.T) {
+	srv, _ := evalServer(t, refundWrong, judgePass)
+	_, out := postEval(t, srv, "ci-token", "scenario=classify&case=refund")
+	if out.Pass || out.Checks[0].Pass || out.Checks[0].Detail != `got "question"` {
+		t.Fatalf("eval: %+v", out)
+	}
+}
+
+func TestEvalRetriesInvalidOutput(t *testing.T) {
+	srv, _ := evalServer(t, `{"category": "nope"}`, refundOK, judgePass)
+	_, out := postEval(t, srv, "ci-token", "scenario=classify&case=refund")
+	if !out.Pass || out.Attempts != 2 {
+		t.Fatalf("eval: %+v", out)
+	}
+	srv, _ = evalServer(t, `{"category": "nope"}`)
+	_, out = postEval(t, srv, "ci-token", "scenario=classify&case=refund")
+	if out.Pass || out.Problem == "" || len(out.Checks) != 0 {
+		t.Fatalf("invalid twice: %+v", out)
+	}
+}
+
+func TestEvalAccess(t *testing.T) {
+	srv, _ := evalServer(t, refundOK)
+	if code, _ := postEval(t, srv, "cli-token", "scenario=classify&case=refund"); code != http.StatusForbidden {
+		t.Fatalf("non-publisher: %d", code)
+	}
+	if code, _ := postEval(t, srv, "ci-token", "scenario=classify&case=nope"); code != http.StatusNotFound {
+		t.Fatalf("unknown case: %d", code)
+	}
+}
