@@ -1,4 +1,5 @@
 import { Moon, Sun } from "lucide-react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Boat } from "./Mascot";
 import { cn } from "@/lib/utils";
 
@@ -19,21 +20,47 @@ export function TopBar(props: {
   dark: boolean;
   onTheme: () => void;
 }) {
+  // One pill slides under the active item instead of each item lighting up on its own.
+  const nav = useRef<HTMLElement>(null);
+  const [pill, setPill] = useState<{ x: number; w: number; animate: boolean } | null>(null);
+  useLayoutEffect(() => {
+    const el = nav.current?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!el) return;
+    // The first placement and resizes jump; only a change of view slides.
+    const place = (animate: boolean) => setPill({ x: el.offsetLeft, w: el.offsetWidth, animate });
+    place(pill !== null);
+    // The observer reports once on subscribe; skipping it keeps that slide alive.
+    let subscribed = false;
+    const ro = new ResizeObserver(() => (subscribed ? place(false) : (subscribed = true)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [props.view]);
+
   return (
     <header className="flex items-center gap-2 border-b px-3 py-2.5 sm:gap-4 sm:px-5 sm:py-3">
       <div className="flex shrink-0 items-center gap-2 text-[16px] font-bold tracking-tight">
         <Boat />
         <span className="hidden sm:inline">charter</span>
       </div>
-      <nav className="flex min-w-0 gap-0.5 overflow-x-auto sm:ml-2">
+      <nav ref={nav} className="relative flex min-w-0 gap-0.5 overflow-x-auto sm:ml-2">
+        {pill && (
+          <span
+            aria-hidden
+            className={cn(
+              "absolute inset-y-0 left-0 rounded-md bg-surface shadow-[inset_0_0_0_1px_var(--border)]",
+              pill.animate && "transition-[transform,width] duration-300 ease-[cubic-bezier(0.3,0.7,0.2,1)]",
+            )}
+            style={{ transform: `translateX(${pill.x}px)`, width: pill.w }}
+          />
+        )}
         {NAV.map((n) => (
           <button
             key={n.id}
             onClick={() => props.onView(n.id)}
             aria-current={props.view === n.id ? "page" : undefined}
             className={cn(
-              "shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[14px] sm:px-3 font-medium text-muted-foreground transition-colors hover:text-foreground",
-              props.view === n.id && "bg-surface text-foreground shadow-[inset_0_0_0_1px_var(--border)]",
+              "relative shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[14px] font-medium text-muted-foreground transition-colors duration-300 hover:text-foreground sm:px-3",
+              props.view === n.id && "text-foreground",
             )}
           >
             {n.label}
