@@ -24,6 +24,7 @@ import (
 	"github.com/charterhq/charter/internal/registry"
 	"github.com/charterhq/charter/internal/run"
 	"github.com/charterhq/charter/internal/telemetry"
+	"github.com/charterhq/charter/internal/webui"
 )
 
 // Server serves /v1.
@@ -59,6 +60,9 @@ func (s *Server) Handler() http.Handler {
 		}
 		_, _ = w.Write([]byte("ok"))
 	})
+	// The web UI is static and public; what it shows comes from the API behind the same auth as everyone else.
+	r.Get("/ui", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "ui/", http.StatusMovedPermanently) })
+	r.Handle("/ui/*", webui.Handler("/ui"))
 	// Driver callbacks (chat buttons) carry the driver's own signature instead of a bearer token.
 	for _, cb := range s.Callbacks {
 		prefix := "/v1/drivers/" + cb.Name()

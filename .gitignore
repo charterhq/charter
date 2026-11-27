@@ -35,3 +35,8 @@ go.work.sum
 
 # Build output
 bin/
+
+# Web UI: dependencies and build output (the build is embedded into agentd)
+web/node_modules/
+internal/webui/dist/*
+!internal/webui/dist/.gitkeep

@@ -17,6 +17,7 @@ Status: early development, not ready for use.
 | `internal/registry` | agents, immutable package versions, kill switch |
 | `internal/api` | HTTP API `/v1`: team hooks, calls, launches (alertmanager, raw), approvals, kill switch, runs, agents |
 | `internal/driver` | driver interfaces |
+| `web/` | web UI (React, Vite); the build is embedded into agentd by `internal/webui` and served at `/ui/` |
 | `drivers/` | driver implementations; `stub` for tests |
 | `schemas/` | JSON Schemas of the v1 package format |
 | `examples/` | example agent packages |
@@ -151,6 +152,8 @@ docker compose -f deploy/compose/dev.yml up -d --wait
 export CHARTER_TEST_DATABASE_URL='postgres://charter:charter@localhost:55432/charter?sslmode=disable'
 make test
 ```
+
+The web UI needs Node 22. `make web` builds it into `internal/webui/dist`, the next `go build` embeds it, agentd serves it at `/ui/`. `make web-dev` runs it with hot reload against agentd on `CHARTER_DEV_API` (default `http://localhost:8080`). The builder in the UI answers from a stub until the core has the web conversation API.
 
 ## License
 

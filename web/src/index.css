@@ -1,0 +1,100 @@
+@import "tailwindcss";
+@import "@fontsource-variable/manrope";
+@import "@fontsource-variable/geist-mono";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Charter theme: the sea at night by default, soft contrast.
+ * Token names follow shadcn/ui so its components drop in as they are.
+ */
+:root {
+  --background: #f3f7fb;
+  --surface: #eaf1f8;
+  --card: #ffffff;
+  --foreground: #253447;
+  --muted-foreground: #5d6f84;
+  --faint: #8a9aad;
+  --border: #dbe5ef;
+  --border-strong: #c9d7e5;
+  --primary: #2f73b5;
+  --primary-hover: #245f98;
+  --primary-foreground: #ffffff;
+  --sky: #5d9fd6;
+  --success: #3f8f71;
+  --warning: #b8822f;
+  --destructive: #c05a55;
+  --ring: #2f73b5;
+  --radius: 0.625rem;
+  --shadow-panel: 0 0 0 1px #0f2a4a0d, 0 18px 40px -26px #1d3d6633;
+}
+
+.dark {
+  --background: #0f1620;
+  --surface: #141d29;
+  --card: #17212e;
+  --foreground: #c9d5e1;
+  --muted-foreground: #8796a8;
+  --faint: #5f6f82;
+  --border: #243243;
+  --border-strong: #2d3e52;
+  --primary: #5b9bd5;
+  --primary-hover: #3f7fb8;
+  --primary-foreground: #ffffff;
+  --sky: #8cc0e8;
+  --success: #5fae8f;
+  --warning: #d6a35a;
+  --destructive: #cf6f6a;
+  --ring: #5b9bd5;
+  --shadow-panel: 0 0 0 1px #ffffff08, 0 18px 40px -24px #000000cc;
+}
+
+@theme inline {
+  --font-sans: "Manrope Variable", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-faint: var(--faint);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-sky: var(--sky);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-destructive: var(--destructive);
+  --color-ring: var(--ring);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --shadow-panel: var(--shadow-panel);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@keyframes bob {
+  50% {
+    transform: translateY(-4px) rotate(-2deg);
+  }
+}
