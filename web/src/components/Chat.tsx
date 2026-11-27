@@ -1,36 +1,30 @@
 import {
   AssistantRuntimeProvider,
-  AttachmentPrimitive,
   AuiIf,
   ComposerPrimitive,
-  CompositeAttachmentAdapter,
   MessagePrimitive,
-  SimpleImageAttachmentAdapter,
-  SimpleTextAttachmentAdapter,
   ThreadPrimitive,
   WebSpeechDictationAdapter,
-  useLocalRuntime,
+  useExternalStoreRuntime,
+  type ThreadMessageLike,
 } from "@assistant-ui/react";
-import { ArrowRight, ArrowUp, Check, ChevronDown, Mic, Paperclip, Plus, Square, X } from "lucide-react";
+import { ArrowRight, ArrowUp, Check, ChevronDown, Mic, Plus, Square } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Boat } from "./Mascot";
-import { builderFor } from "@/lib/builder-mock";
-import { BRIEF_LABELS, draft, focusField, openRoom, useDraft, type BriefField, type Room } from "@/lib/store";
+import type { Message } from "@/lib/api";
+import { fieldOf, focusField, label, openRoom, say, selectRoom, useDraft, type Room } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 export function Chat() {
   const d = useDraft();
-  useEffect(() => {
-    if (!draft.get().rooms.length) openRoom();
-  }, []);
   const room = d.rooms.find((r) => r.id === d.room);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card shadow-panel">
       <div className="flex items-center gap-2 border-b px-3 py-2">
-        <RoomSwitcher rooms={d.rooms} current={d.room} />
+        <RoomSwitcher rooms={d.rooms} current={d.room} live={d.live} />
         <button
-          onClick={() => openRoom()}
+          onClick={() => void openRoom()}
           title="Новая беседа: бриф и все решения сохраняются"
           className="ml-auto flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[13px] text-muted-foreground hover:bg-surface hover:text-foreground"
         >
@@ -44,7 +38,7 @@ export function Chat() {
 }
 
 // Rooms keep the chat short; the brief carries what was decided, so switching loses nothing.
-function RoomSwitcher({ rooms, current }: { rooms: Room[]; current: string }) {
+function RoomSwitcher({ rooms, current, live }: { rooms: Room[]; current: string; live: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -67,8 +61,14 @@ function RoomSwitcher({ rooms, current }: { rooms: Room[]; current: string }) {
         aria-expanded={open}
         className="flex max-w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-[13px] font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
       >
-        <span className="size-[7px] shrink-0 rounded-full bg-success shadow-[0_0_0_3px_color-mix(in_oklab,var(--success)_20%,transparent)]" />
-        <span className="min-w-0 truncate">{room?.title ?? "Беседа"}</span>
+        <span
+          title={live ? "Связь с ядром есть" : "Нет связи с ядром, переподключаюсь"}
+          className={cn(
+            "size-[7px] shrink-0 rounded-full",
+            live ? "bg-success shadow-[0_0_0_3px_color-mix(in_oklab,var(--success)_20%,transparent)]" : "bg-border-strong",
+          )}
+        />
+        <span className="min-w-0 truncate">{roomTitle(room, rooms)}</span>
         <ChevronDown size={13} className="shrink-0" />
       </button>
       {open && (
@@ -78,7 +78,7 @@ function RoomSwitcher({ rooms, current }: { rooms: Room[]; current: string }) {
             <button
               key={r.id}
               onClick={() => {
-                draft.set({ room: r.id });
+                void selectRoom(r.id);
                 setOpen(false);
               }}
               className={cn(
@@ -86,8 +86,8 @@ function RoomSwitcher({ rooms, current }: { rooms: Room[]; current: string }) {
                 r.id === current && "bg-surface text-foreground",
               )}
             >
-              <span className="min-w-0 flex-1 truncate">{r.title}</span>
-              <span className="text-[12px] text-faint">{r.messages.length}</span>
+              <span className="min-w-0 flex-1 truncate">{roomTitle(r, rooms)}</span>
+              {r.loaded && <span className="text-[12px] text-faint">{r.messages.length}</span>}
               {r.id === current && <Check size={13} className="text-primary" />}
             </button>
           ))}
@@ -97,16 +97,38 @@ function RoomSwitcher({ rooms, current }: { rooms: Room[]; current: string }) {
   );
 }
 
+function roomTitle(room: Room | undefined, rooms: Room[]) {
+  if (!room) return "Беседа";
+  return room.title || `Беседа ${rooms.length - rooms.indexOf(room)}`;
+}
+
+function convert(m: Message): ThreadMessageLike {
+  return {
+    role: m.role === "agent" ? "assistant" : "user",
+    content: [{ type: "text", text: m.text }],
+    id: m.message_id || `seq-${m.seq}`,
+    createdAt: new Date(m.at),
+    metadata: { custom: { fields: m.fields } },
+  };
+}
+
+// The thread shows the room's messages from the core; a sent message goes to the core and its
+// answer comes back through the object's event stream.
 function RoomThread({ room }: { room: Room }) {
-  const adapter = useMemo(() => builderFor(room.id), [room.id]);
-  const runtime = useLocalRuntime(adapter, {
-    initialMessages: room.messages.map((m) => ({ role: m.role, content: m.text, metadata: { custom: m.field ? { field: m.field } : {} } })),
-    adapters: {
-      attachments: new CompositeAttachmentAdapter([new SimpleImageAttachmentAdapter(), new SimpleTextAttachmentAdapter()]),
-      dictation: WebSpeechDictationAdapter.isSupported()
-        ? new WebSpeechDictationAdapter({ language: "ru-RU", interimResults: true })
-        : undefined,
+  const dictation = useMemo(
+    () => (WebSpeechDictationAdapter.isSupported() ? new WebSpeechDictationAdapter({ language: "ru-RU", interimResults: true }) : undefined),
+    [],
+  );
+  const runtime = useExternalStoreRuntime<Message>({
+    messages: room.messages,
+    isRunning: room.running,
+    isLoading: !room.loaded,
+    convertMessage: convert,
+    onNew: async (msg) => {
+      const text = msg.content.map((p) => (p.type === "text" ? p.text : "")).join(" ").trim();
+      if (text) await say(room.id, text);
     },
+    adapters: { dictation },
   });
 
   return (
@@ -117,26 +139,20 @@ function RoomThread({ room }: { room: Room }) {
             {({ message }) =>
               message.role === "user" ? (
                 <MessagePrimitive.Root className="flex min-w-0 max-w-[85%] flex-col items-end gap-1.5 self-end">
-                  <MessagePrimitive.Attachments>
-                    {() => (
-                      <AttachmentPrimitive.Root className="rounded-md border bg-surface px-2 py-0.5 text-[12px] text-muted-foreground">
-                        <AttachmentPrimitive.Name />
-                      </AttachmentPrimitive.Root>
-                    )}
-                  </MessagePrimitive.Attachments>
-                  <div className="max-w-full rounded-xl rounded-br-sm border bg-surface px-3 py-2 text-[15px] [overflow-wrap:anywhere]">
+                  <div className="max-w-full rounded-xl rounded-br-sm border bg-surface px-3 py-2 text-[15px] [overflow-wrap:anywhere] whitespace-pre-wrap">
                     <MessagePrimitive.Parts />
                   </div>
                 </MessagePrimitive.Root>
               ) : (
                 <MessagePrimitive.Root>
-                  <Bot field={message.metadata.custom?.field as BriefField | undefined}>
+                  <Bot fields={(message.metadata.custom?.fields as string[] | undefined) ?? []}>
                     <MessagePrimitive.Parts />
                   </Bot>
                 </MessagePrimitive.Root>
               )
             }
           </ThreadPrimitive.Messages>
+          {room.running && <Typing />}
         </ThreadPrimitive.Viewport>
         <Composer />
       </ThreadPrimitive.Root>
@@ -144,76 +160,74 @@ function RoomThread({ room }: { room: Room }) {
   );
 }
 
+function Typing() {
+  return (
+    <div className="flex items-center gap-2.5 text-[13px] text-faint" aria-live="polite">
+      <span className="grid size-7 shrink-0 place-items-center rounded-lg border bg-surface">
+        <Boat size={18} />
+      </span>
+      Билдер думает…
+    </div>
+  );
+}
+
 const iconButton =
   "grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-card hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent";
 
+// Attachments come back when the core keeps files of an object; dictation stays in the browser.
 function Composer() {
   return (
     <ComposerPrimitive.Root className="m-3 rounded-xl border bg-surface focus-within:border-primary">
-      <ComposerPrimitive.AttachmentDropzone className="flex flex-col">
-        <div className="flex flex-wrap gap-1.5 px-2 pt-2 empty:hidden">
-          <ComposerPrimitive.Attachments>
-            {() => (
-              <AttachmentPrimitive.Root className="flex items-center gap-1.5 rounded-md border bg-card py-0.5 pl-2 pr-1 text-[12px] text-muted-foreground">
-                <AttachmentPrimitive.Name />
-                <AttachmentPrimitive.Remove aria-label="Убрать вложение" className="rounded p-0.5 hover:bg-surface hover:text-foreground">
-                  <X size={11} />
-                </AttachmentPrimitive.Remove>
-              </AttachmentPrimitive.Root>
-            )}
-          </ComposerPrimitive.Attachments>
-        </div>
-        <ComposerPrimitive.Input
-          rows={1}
-          aria-label="Сообщение билдеру"
-          placeholder="Напиши или скажи, что хочешь…"
-          className="mx-1.5 mt-1.5 mb-1 max-h-48 min-h-9 resize-none bg-transparent px-1.5 pt-1 text-[15px] outline-none placeholder:text-faint"
-        />
-        <div className="flex items-center gap-0.5 p-1.5 pt-0">
-          <ComposerPrimitive.AddAttachment className={iconButton} title="Приложить файл или картинку" aria-label="Приложить файл или картинку">
-            <Paperclip size={15} />
-          </ComposerPrimitive.AddAttachment>
-          <AuiIf condition={(s) => s.composer.dictation == null}>
-            <ComposerPrimitive.Dictate
-              className={iconButton}
-              aria-label="Сказать голосом"
-              title="Сказать голосом (в этом браузере может быть недоступно)"
-            >
-              <Mic size={15} />
-            </ComposerPrimitive.Dictate>
-          </AuiIf>
-          <AuiIf condition={(s) => s.composer.dictation != null}>
-            <ComposerPrimitive.StopDictation className={cn(iconButton, "text-destructive")} title="Остановить запись" aria-label="Остановить запись">
-              <Square size={13} className="animate-pulse fill-current" />
-            </ComposerPrimitive.StopDictation>
-          </AuiIf>
-          <ComposerPrimitive.Send aria-label="Отправить" className="ml-auto grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground hover:bg-primary-hover disabled:opacity-40">
-            <ArrowUp size={15} />
-          </ComposerPrimitive.Send>
-        </div>
-      </ComposerPrimitive.AttachmentDropzone>
+      <ComposerPrimitive.Input
+        rows={1}
+        aria-label="Сообщение билдеру"
+        placeholder="Напиши или скажи, что хочешь…"
+        className="mx-1.5 mt-1.5 mb-1 max-h-48 min-h-9 w-[calc(100%-0.75rem)] resize-none bg-transparent px-1.5 pt-1 text-[15px] outline-none placeholder:text-faint"
+      />
+      <div className="flex items-center gap-0.5 p-1.5 pt-0">
+        <AuiIf condition={(s) => s.composer.dictation == null}>
+          <ComposerPrimitive.Dictate className={iconButton} aria-label="Сказать голосом" title="Сказать голосом (в этом браузере может быть недоступно)">
+            <Mic size={15} />
+          </ComposerPrimitive.Dictate>
+        </AuiIf>
+        <AuiIf condition={(s) => s.composer.dictation != null}>
+          <ComposerPrimitive.StopDictation className={cn(iconButton, "text-destructive")} title="Остановить запись" aria-label="Остановить запись">
+            <Square size={13} className="animate-pulse fill-current" />
+          </ComposerPrimitive.StopDictation>
+        </AuiIf>
+        <ComposerPrimitive.Send aria-label="Отправить" className="ml-auto grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground hover:bg-primary-hover disabled:opacity-40">
+          <ArrowUp size={15} />
+        </ComposerPrimitive.Send>
+      </div>
     </ComposerPrimitive.Root>
   );
 }
 
-function Bot({ children, field }: { children: React.ReactNode; field?: BriefField }) {
+function Bot({ children, fields }: { children: React.ReactNode; fields: string[] }) {
+  const d = useDraft();
+  const cards = [...new Set(fields.map(fieldOf))];
   return (
     <div className="flex items-start gap-2.5">
       <span className="grid size-7 shrink-0 place-items-center rounded-lg border bg-surface">
         <Boat size={18} />
       </span>
-      <div className="min-w-0 pt-0.5 text-[15px] [overflow-wrap:anywhere]">
+      <div className="min-w-0 pt-0.5 text-[15px] [overflow-wrap:anywhere] whitespace-pre-wrap">
         <div className="mb-0.5 text-[12px] font-semibold text-sky">Билдер</div>
         {children}
-        {field && (
-          <button
-            type="button"
-            onClick={() => focusField(field)}
-            className="mt-1.5 flex items-center gap-1 rounded-md border bg-surface px-2 py-0.5 text-[12px] text-muted-foreground hover:border-border-strong hover:text-foreground"
-          >
-            <ArrowRight size={12} aria-hidden />
-            {BRIEF_LABELS[field]}
-          </button>
+        {cards.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {cards.map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => focusField(f)}
+                className="flex items-center gap-1 rounded-md border bg-surface px-2 py-0.5 text-[12px] text-muted-foreground hover:border-border-strong hover:text-foreground"
+              >
+                <ArrowRight size={12} aria-hidden />
+                {label(d, f)}
+              </button>
+            ))}
+          </div>
         )}
       </div>
     </div>

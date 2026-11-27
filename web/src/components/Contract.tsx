@@ -1,5 +1,5 @@
 import { FileCode2 } from "lucide-react";
-import { BRIEF_LABELS, focusField, type BriefField, type Draft } from "@/lib/store";
+import { focusField, label, type BriefField, type Draft } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 // A preview of the package the brief turns into, in the v1 format (schemas/*.schema.json).
@@ -7,15 +7,16 @@ import { cn } from "@/lib/utils";
 // The rest of the required fields are decided on the "Описание" stage, so the preview says so
 // instead of inventing values.
 
-type Line = { text: string; field?: BriefField; pending?: boolean; note?: boolean };
+type Line = { text: string; field?: BriefField; pending?: boolean; note?: boolean; label?: string };
 
 const SCENARIO = "main";
 
-// The "Пакет агента" artifact. Before the request is confirmed it opens as a read-only draft.
-export const PACKAGE = { stage: 1, artifact: 0 };
+// Brief fields the preview reads (docs/templates/brief.md of the platform): the job, when it starts,
+// and what it does by itself and never. A builder package with other names shows these as pending.
+const F = { work: "work", trigger: "trigger", limits: "limits" };
 
-export function Contract({ d }: { d: Draft }) {
-  const draftOnly = d.stage < PACKAGE.stage;
+// The "Пакет агента" artifact. Before the request is confirmed it opens as a read-only draft.
+export function Contract({ d, draftOnly }: { d: Draft; draftOnly: boolean }) {
   const files: { path: string; lines: Line[] }[] = [
     { path: "agent.yml", lines: agentLines(d) },
     { path: `scenarios/${SCENARIO}/scenario.yml`, lines: scenarioLines(d) },
@@ -47,7 +48,7 @@ export function Contract({ d }: { d: Draft }) {
             </figcaption>
             <pre className="whitespace-pre-wrap py-2 font-mono text-[12.5px] leading-[1.7] [overflow-wrap:anywhere]">
               {f.lines.map((l, i) => (
-                <YamlLine key={i} line={l} />
+                <YamlLine key={i} line={l.field ? { ...l, label: label(d, l.field) } : l} />
               ))}
             </pre>
           </figure>
@@ -66,7 +67,7 @@ function YamlLine({ line }: { line: Line }) {
       <span className={cn(line.pending || line.note ? "text-faint" : "text-foreground")}>{line.text}</span>
       {line.field && (
         <span className="ml-3 hidden rounded bg-card px-1.5 font-sans text-[11px] text-muted-foreground group-hover:inline">
-          {BRIEF_LABELS[line.field]}
+          {line.label}
         </span>
       )}
     </>
@@ -77,7 +78,7 @@ function YamlLine({ line }: { line: Line }) {
       type="button"
       onClick={() => focusField(line.field!)}
       style={{ ...style, paddingLeft: `calc(1rem - 2px + ${hang}ch)` }}
-      title={`К полю «${BRIEF_LABELS[line.field]}»`}
+      title={`К полю "${line.label}"`}
       className={cn(
         "group block w-full border-l-2 pr-4 text-left hover:bg-card",
         line.pending ? "border-transparent" : "border-success/70",
@@ -88,41 +89,43 @@ function YamlLine({ line }: { line: Line }) {
   );
 }
 
+const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+
 function agentLines(d: Draft): Line[] {
-  const { goal, duties, escalation } = d.brief;
-  const { does, doesNot } = splitDuties(duties);
+  const work = text(d.brief[F.work]);
+  const limits = (d.brief[F.limits] ?? {}) as Record<string, unknown>;
+  const does = sentences(text(limits.self));
+  const never = sentences(text(limits.never));
+  const team = text(d.attrs.team) || "<команда>";
+  const owner = d.members.find((m) => m.role === "owner")?.person ?? "<владелец>";
   return [
     { text: "apiVersion: charter.dev/v1" },
     { text: "kind: Agent" },
     { text: "metadata:" },
     { text: `  name: ${slug(d.name)}` },
-    { text: "  team: sre" },
-    { text: "  owner: e.azimov" },
+    { text: `  team: ${team}` },
+    { text: `  owner: ${owner}` },
     { text: "  version: 0.1.0" },
-    { text: "  status: shadow  # первый выпуск идет в тень" },
+    { text: "  status: draft" },
     { text: "spec:" },
     { text: "  goals:" },
-    goal ? { text: `    - ${q(goal)}`, field: "goal" } : { text: "    # ← Зачем", field: "goal", pending: true },
+    work ? { text: `    - ${q(work)}`, field: F.work } : { text: "    # ← какую работу делает", field: F.work, pending: true },
     { text: "  duties:" },
     ...(does.length
-      ? does.map((s): Line => ({ text: `    - ${q(s)}`, field: "duties" }))
-      : [{ text: "    # ← Что делает", field: "duties" as const, pending: true }]),
+      ? does.map((s): Line => ({ text: `    - ${q(s)}`, field: F.limits }))
+      : [{ text: "    # ← что делает сам", field: F.limits, pending: true }]),
     { text: "  not_duties:" },
-    ...(doesNot.length
-      ? doesNot.map((s): Line => ({ text: `    - ${q(s)}`, field: "duties" }))
-      : [{ text: "    # ← Чего не делает", field: "duties" as const, pending: true }]),
-    { text: "  knowledge:" },
-    escalation
-      ? { text: `    - {path: knowledge/people.yml}  # кого звать: ${escalation}`, field: "escalation" }
-      : { text: "    # ← Кого звать: knowledge/people.yml", field: "escalation", pending: true },
+    ...(never.length
+      ? never.map((s): Line => ({ text: `    - ${q(s)}`, field: F.limits }))
+      : [{ text: "    # ← чего не делает никогда", field: F.limits, pending: true }]),
     { text: "  scenarios:" },
     { text: `    - name: ${SCENARIO}` },
-    { text: "  # description, persona, model, data_classes, budgets, memory, fallback – на этапе «Описание»", note: true },
+    { text: "  # description, persona, model, data_classes, budgets, memory, fallback – на этапе \"Описание\"", note: true },
   ];
 }
 
 function scenarioLines(d: Draft): Line[] {
-  const { trigger } = d.brief;
+  const trigger = text(d.brief[F.trigger]);
   return [
     { text: "apiVersion: charter.dev/v1" },
     { text: "kind: Scenario" },
@@ -131,20 +134,18 @@ function scenarioLines(d: Draft): Line[] {
     { text: "spec:" },
     { text: "  triggers:" },
     trigger
-      ? { text: `    - ${guessTrigger(trigger)}  # «${clip(trigger, 48)}»`, field: "trigger" }
-      : { text: "    # ← Когда срабатывает", field: "trigger", pending: true },
-    { text: "  # схемы входа и выхода, инструкции, autonomy, eval – на этапе «Описание»", note: true },
+      ? { text: `    - ${guessTrigger(trigger)}  # "${clip(trigger, 48)}"`, field: F.trigger }
+      : { text: "    # ← когда берется за работу", field: F.trigger, pending: true },
+    { text: "  # схемы входа и выхода, инструкции, autonomy, eval – на этапе \"Описание\"", note: true },
   ];
 }
 
-// The builder will split duties properly; the preview splits by sentences and negations.
-function splitDuties(text?: string) {
-  const parts = (text ?? "")
-    .split(/(?<=[.!?;])\s+|\s*,\s*(?=но\s|а\s)/i)
-    .map((s) => s.trim().replace(/[.;]$/, ""))
+// The builder lays the brief into the package; the preview only splits a field into sentences.
+function sentences(t: string) {
+  return t
+    .split(/(?<=[.!?;])\s+|\n+/)
+    .map((s) => s.trim().replace(/^[-•]\s*/, "").replace(/[.;]$/, ""))
     .filter(Boolean);
-  const neg = /(^|\s)(не|никогда|нельзя)\s/i;
-  return { does: parts.filter((s) => !neg.test(s)), doesNot: parts.filter((s) => neg.test(s)) };
 }
 
 function guessTrigger(text: string) {

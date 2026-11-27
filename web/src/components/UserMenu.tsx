@@ -1,9 +1,14 @@
-import { Command, Settings, X } from "lucide-react";
+import { Command, LogOut, Settings, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { setToken } from "@/lib/api";
+import { useDraft } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-// Until the core gives the signed-in user, the menu shows the draft's owner.
-const USER = { login: "e.azimov", team: "SRE", role: "владелец агентов" };
+// The signed-in caller comes from GET /v1/me; team and role come with OIDC.
+function useUser() {
+  const login = useDraft().me ?? "";
+  return { login, team: "", role: "" };
+}
 const initials = (login: string) =>
   login
     .split(/[.\-_]/)
@@ -20,6 +25,7 @@ export type Prefs = {
 };
 
 export function UserMenu(props: Prefs & { onPalette: () => void }) {
+  const USER = useUser();
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -66,7 +72,7 @@ export function UserMenu(props: Prefs & { onPalette: () => void }) {
             <div className="min-w-0">
               <div className="truncate text-[14px] font-semibold">{USER.login}</div>
               <div className="truncate text-[13px] text-faint">
-                команда {USER.team} · {USER.role}
+                {USER.team ? `команда ${USER.team} · ${USER.role}` : "вход по токену API"}
               </div>
             </div>
           </div>
@@ -95,6 +101,17 @@ export function UserMenu(props: Prefs & { onPalette: () => void }) {
             Команды
             <kbd className="ml-auto font-mono text-[12px] text-faint">{isMac ? "⌘K" : "Ctrl K"}</kbd>
           </button>
+          <button
+            role="menuitem"
+            className={item}
+            onClick={() => {
+              setToken("");
+              location.reload();
+            }}
+          >
+            <LogOut size={15} aria-hidden />
+            Выйти
+          </button>
         </div>
       )}
       <SettingsDialog open={settings} onClose={() => setSettings(false)} returnFocus={button} {...props} />
@@ -105,6 +122,7 @@ export function UserMenu(props: Prefs & { onPalette: () => void }) {
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
 function Avatar({ size = "md" }: { size?: "md" | "lg" }) {
+  const USER = useUser();
   return (
     <span
       aria-hidden
@@ -113,7 +131,7 @@ function Avatar({ size = "md" }: { size?: "md" | "lg" }) {
         size === "md" ? "size-7 text-[12px]" : "size-10 text-[14px]",
       )}
     >
-      {initials(USER.login)}
+      {initials(USER.login) || "?"}
     </span>
   );
 }
@@ -122,6 +140,7 @@ function Avatar({ size = "md" }: { size?: "md" | "lg" }) {
 function SettingsDialog(
   props: Prefs & { open: boolean; onClose: () => void; returnFocus: React.RefObject<HTMLButtonElement | null> },
 ) {
+  const USER = useUser();
   const ref = useRef<HTMLDialogElement>(null);
   const { open, onClose, returnFocus } = props;
 
@@ -169,9 +188,7 @@ function SettingsDialog(
               <dt className="text-faint">Логин</dt>
               <dd className="font-mono text-[13px]">{USER.login}</dd>
               <dt className="text-faint">Команда</dt>
-              <dd>{USER.team}</dd>
-              <dt className="text-faint">Роль</dt>
-              <dd>{USER.role}</dd>
+              <dd>{USER.team || "появится со входом через Keycloak"}</dd>
             </dl>
           </div>
           <p className="mt-3 text-[13px] text-faint">Профиль приходит из учетной записи, здесь он только для чтения.</p>
