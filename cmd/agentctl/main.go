@@ -20,6 +20,7 @@ var version = "dev"
 
 const usage = `usage:
   agentctl validate <package-dir> [--json]          check an agent package
+  agentctl fields                                    what this core does with each field of the format
   agentctl publish <package-dir> [git-sha]           validate and publish a package to the core
   agentctl render <package-dir> <scenario> <output.json> [--failed error]
                                                      show the message a run would post
@@ -47,6 +48,9 @@ func run(args []string) int {
 	switch cmd := args[0]; cmd {
 	case "version":
 		fmt.Println("agentctl", version)
+		return 0
+	case "fields":
+		fmt.Print(pkg.SupportTable())
 		return 0
 	case "validate":
 		if len(args) < 2 {
@@ -144,20 +148,31 @@ func validate(dir string, asJSON bool) int {
 		out := map[string]any{"valid": problems == nil, "problems": problems}
 		if p != nil {
 			out["agent"] = p.Agent.Metadata
+			out["warnings"] = p.Warnings
 		}
 		_ = json.NewEncoder(os.Stdout).Encode(out)
 	case problems != nil:
 		for _, pr := range problems {
 			fmt.Println(pr)
 		}
+		if p != nil {
+			printWarnings(os.Stdout, p.Warnings)
+		}
 	default:
-		fmt.Printf("%s %s: ok, %d scenario(s), %d connection(s)\n",
-			p.Agent.Metadata.Name, p.Agent.Metadata.Version, len(p.Scenarios), len(p.Connections))
+		printWarnings(os.Stdout, p.Warnings)
+		fmt.Printf("%s %s: ok, %d scenario(s), %d connection(s), %d warning(s)\n",
+			p.Agent.Metadata.Name, p.Agent.Metadata.Version, len(p.Scenarios), len(p.Connections), len(p.Warnings))
 	}
 	if problems != nil {
 		return 1
 	}
 	return 0
+}
+
+func printWarnings(w io.Writer, ws pkg.Problems) {
+	for _, pr := range ws {
+		fmt.Fprintln(w, "warning:", pr)
+	}
 }
 
 func apiCall(method, path string, body any) int {
@@ -238,10 +253,12 @@ func renderCmd(dir, scenario, outputFile, failed string) int {
 
 // publish checks the package locally first (same loader as the core), then sends it as tar.gz.
 func publish(dir, sha string) int {
-	if _, problems := pkg.Load(os.DirFS(dir)); problems != nil {
+	p, problems := pkg.Load(os.DirFS(dir))
+	if problems != nil {
 		fmt.Fprintf(os.Stderr, "package has problems:\n%v\n", problems)
 		return 1
 	}
+	printWarnings(os.Stderr, p.Warnings)
 	b, err := pkg.Pack(dir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

@@ -66,7 +66,8 @@ func formatSchemas() (map[string]*jsonschema.Schema, error) {
 }
 
 // Load reads a package directory, validates it and returns it with all problems found.
-// A non-empty Problems means the package must not be applied.
+// A non-empty Problems means the package must not be applied. Fields the core does not execute are
+// problems, required fields it does not enforce are p.Warnings (see Fields).
 func Load(fsys fs.FS) (*Package, Problems) {
 	var ps Problems
 	p := &Package{Scenarios: map[string]*Scenario{}, Connections: map[string]*Connection{}}
@@ -131,9 +132,12 @@ func Load(fsys fs.FS) (*Package, Problems) {
 			if _, dup := p.Connections[c.Metadata.Name]; dup {
 				ps.add(file, "duplicate connection name %q", c.Metadata.Name)
 			}
+			c.File = file
 			p.Connections[c.Metadata.Name] = &c
 		}
 	}
+
+	checkSupport(p, &ps, &p.Warnings)
 
 	sort.SliceStable(ps, func(i, j int) bool { return ps[i].File < ps[j].File })
 	if len(ps) > 0 {

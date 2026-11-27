@@ -56,5 +56,9 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 	if s.Log != nil {
 		s.Log.Info("package published", "agent", m.Name, "version", m.Version, "version_id", id, "by", who, "git_sha", sha)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"agent": m.Name, "version": m.Version, "version_id": id})
+	out := map[string]any{"agent": m.Name, "version": m.Version, "version_id": id}
+	if len(p.Warnings) > 0 {
+		out["warnings"] = p.Warnings
+	}
+	writeJSON(w, http.StatusOK, out)
 }

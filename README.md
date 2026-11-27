@@ -29,6 +29,8 @@ Status: early development, not ready for use.
 go run ./cmd/agentctl validate examples/ticket-triage
 ```
 
+The format is ahead of the core. `agentctl fields` prints what this core does with each field: `executed`, `described` (kept for people and review), `unenforced` (required by the format, not enforced yet: validation warns) or `unsupported` (validation fails when the field is set). A package never passes with a field the core would silently ignore.
+
 ## Run
 
 ```sh

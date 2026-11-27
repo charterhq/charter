@@ -13,6 +13,5 @@ spec:
   autonomy: advise
   response: {template: response.md.tmpl}
   idempotency: {key: [ticket.id, scenario, input.hash], on_repeat: skip}
-  on_failure: owner
+  on_failure: requester
   eval: eval/
-  feedback: {unit: response}

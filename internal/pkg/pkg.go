@@ -27,6 +27,8 @@ type Package struct {
 	Persona     string
 	Scenarios   map[string]*Scenario
 	Connections map[string]*Connection
+	// Warnings are required fields this core does not enforce; they do not stop the package.
+	Warnings Problems
 }
 
 type Metadata struct {
@@ -199,6 +201,8 @@ type Connection struct {
 	Kind       string         `json:"kind"`
 	Metadata   Metadata       `json:"metadata"`
 	Spec       ConnectionSpec `json:"spec"`
+
+	File string `json:"-"` // path in the package
 }
 
 type ConnectionSpec struct {
