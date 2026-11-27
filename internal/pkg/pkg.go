@@ -11,6 +11,7 @@
 //	scenarios/<name>/eval/cases/*.yml
 //	knowledge/*                     knowledge files named in agent.yml and connections
 //	connections/<team>.yml          team connections (kind: Connection)
+//	brief.md                        the request in plain words; not part of a version (see Brief)
 package pkg
 
 import (

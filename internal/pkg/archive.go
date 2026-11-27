@@ -46,6 +46,9 @@ func Pack(dir string) ([]byte, error) {
 		if err != nil {
 			return err
 		}
+		if notPackaged(filepath.ToSlash(rel)) {
+			return nil
+		}
 		b, err := readFile(p)
 		if err != nil {
 			return err
@@ -115,6 +118,13 @@ func Unpack(r io.Reader) (fs.FS, error) {
 	return out, nil
 }
 
+// Brief is the agent's request in plain words (why the agent exists, STD-0002). It lives next to
+// the package but is not part of a version: editing it neither changes the agent nor needs a new version.
+const Brief = "brief.md"
+
+// notPackaged reports files of the package directory that do not go into a version.
+func notPackaged(rel string) bool { return rel == Brief }
+
 func readFile(p string) ([]byte, error) { return os.ReadFile(p) }
 
 // SourceDigest is the SHA-256 of the package files as Pack would take them: paths and contents in
@@ -131,7 +141,7 @@ func SourceDigest(fsys fs.FS) (string, error) {
 			}
 			return nil
 		}
-		if d.Type().IsRegular() && !strings.HasPrefix(d.Name(), ".") {
+		if d.Type().IsRegular() && !strings.HasPrefix(d.Name(), ".") && !notPackaged(p) {
 			files = append(files, p)
 		}
 		return nil
