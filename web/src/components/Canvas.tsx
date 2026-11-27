@@ -1,137 +1,209 @@
-import { Check } from "lucide-react";
+import { Check, Lock } from "lucide-react";
+import { useState } from "react";
 import { Boat } from "./Mascot";
-import { BRIEF_LABELS, STAGES, draft, useDraft, type BriefField } from "@/lib/store";
+import {
+  BRIEF_LABELS,
+  BRIEF_QUESTIONS,
+  STAGE_ARTIFACTS,
+  STAGES,
+  draft,
+  useDraft,
+  type BriefField,
+} from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const FIELDS = Object.keys(BRIEF_LABELS) as BriefField[];
 
+// The canvas shows one thing at a time: the artifact of the chosen stage.
+// Stages with their artifacts run down the left, the next action sits at the bottom.
 export function Canvas() {
   const d = useDraft();
+  const [open, setOpen] = useState({ stage: 0, artifact: 0 });
   const filled = FIELDS.filter((f) => d.brief[f]).length;
-  const ready = filled === FIELDS.length;
+  const missing = FIELDS.filter((f) => !d.brief[f]);
+  const ready = missing.length === 0;
 
   return (
-    <section
-      className="relative min-h-0 overflow-y-auto rounded-xl border p-6 shadow-panel"
-      style={{
-        background:
-          "radial-gradient(120% 70% at 100% 0%, color-mix(in oklab, var(--primary) 12%, transparent), transparent 60%), radial-gradient(var(--border) 1px, transparent 1px) 0 0/18px 18px, var(--card)",
-      }}
-    >
-      <div className="absolute right-5 top-4">
-        <Boat size={56} bob />
-      </div>
-      <h1 className="text-xl font-semibold tracking-tight">{d.name}</h1>
-      <p className="mb-5 mt-0.5 text-[12.5px] text-faint">черновик · эпик появится после заявки</p>
+    <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card shadow-panel">
+      <header className="flex items-center gap-3 border-b px-5 py-3.5">
+        <Boat size={28} bob />
+        <div className="min-w-0">
+          <h1 className="truncate text-[17px] font-semibold tracking-tight">{d.name}</h1>
+          <p className="text-xs text-faint">команда SRE · владелец e.azimov · эпик появится после заявки</p>
+        </div>
+        <span className="ml-auto rounded-full bg-surface px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+          {STAGES[d.stage]}
+        </span>
+      </header>
 
-      <Stages current={d.stage} />
+      <div className="grid min-h-0 flex-1 grid-cols-[208px_1fr]">
+        <StageRail current={d.stage} open={open} onOpen={setOpen} />
 
-      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
-        <Card title="Заявка" tag={ready ? "готова" : "черновик"} tone={ready ? "ok" : "wip"}>
-          <ul className="space-y-1.5">
-            {FIELDS.map((f) => (
-              <li key={f} className="text-[12.5px]">
-                <span className="text-faint">{BRIEF_LABELS[f]}: </span>
-                <span className={d.brief[f] ? "text-muted-foreground" : "text-faint italic"}>{d.brief[f] ?? "ждет ответа"}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-        <Card title="Путь агента" tag="набросок" tone="todo">
-          <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-            {["событие", "проверки", "вывод", "ответ"].map((n, i, a) => (
-              <span key={n} className="flex items-center gap-1.5">
-                <span className="rounded-md border border-border-strong bg-surface px-2 py-0.5">{n}</span>
-                {i < a.length - 1 && <span className="text-primary">→</span>}
-              </span>
-            ))}
-          </div>
-        </Card>
-        <Card title="Готовность" tag={`${filled} из ${FIELDS.length}`} tone={ready ? "ok" : "todo"}>
-          <p className="text-[12.5px] text-muted-foreground">
-            {ready ? "Заявку можно подтверждать" : "Отвечай билдеру – поля заполнятся сами"}
-          </p>
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-primary-hover to-sky transition-[width] duration-500"
-              style={{ width: `${(filled / FIELDS.length) * 100}%` }}
-            />
-          </div>
-        </Card>
+        <div
+          className="min-h-0 overflow-y-auto px-8 py-6"
+          style={{
+            background:
+              "radial-gradient(90% 60% at 100% 0%, color-mix(in oklab, var(--primary) 9%, transparent), transparent 60%), var(--card)",
+          }}
+        >
+          {open.stage === 0 ? (
+            <Brief brief={d.brief} lastFilled={d.lastFilled} />
+          ) : (
+            <Later artifact={STAGE_ARTIFACTS[open.stage][open.artifact]} />
+          )}
+        </div>
       </div>
 
-      {d.events.length > 0 && (
-        <ul className="mt-4 space-y-1 text-xs text-muted-foreground">
-          {d.events.map((e) => (
-            <li key={e} className="flex items-center gap-1.5">
-              <Check size={13} className="text-success" />
-              {e}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <div className="mt-5 flex flex-wrap items-center gap-2.5">
+      <footer className="flex flex-wrap items-center gap-4 border-t bg-surface/60 px-5 py-3">
+        <Progress value={filled} total={FIELDS.length} />
+        <div className="min-w-0 flex-1 text-[12.5px]">
+          {ready ? (
+            <span className="text-muted-foreground">Заявка собрана. После подтверждения – эпик и базовые задачи в Jira.</span>
+          ) : (
+            <span className="text-faint">
+              Не хватает: <span className="text-muted-foreground">{missing.map((f) => BRIEF_LABELS[f].toLowerCase()).join(", ")}</span>
+            </span>
+          )}
+        </div>
         <button
           disabled={!ready || d.stage > 0}
-          onClick={() =>
-            draft.set((s) => ({ stage: s.stage + 1, events: [...s.events, "Эпик и базовые задачи созданы (пример)"] }))
-          }
+          onClick={() => {
+            draft.set((s) => ({ stage: s.stage + 1, events: [...s.events, "Эпик и базовые задачи созданы (пример)"] }));
+            setOpen({ stage: 1, artifact: 0 });
+          }}
           className="rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-40"
         >
-          Подтвердить этап
+          {d.stage > 0 ? "Заявка подтверждена" : "Подтвердить заявку"}
         </button>
-        <span className="text-xs text-faint">после подтверждения – эпик и базовые задачи в Jira</span>
-      </div>
+      </footer>
     </section>
   );
 }
 
-function Stages({ current }: { current: number }) {
+function StageRail(props: {
+  current: number;
+  open: { stage: number; artifact: number };
+  onOpen: (o: { stage: number; artifact: number }) => void;
+}) {
   return (
-    <ol className="mb-6 flex flex-wrap items-center gap-y-2">
-      {STAGES.map((s, i) => (
-        <li key={s} className="flex items-center">
-          <span
-            className={cn(
-              "flex items-center gap-2 text-[12.5px] font-medium text-faint",
-              i < current && "text-muted-foreground",
-              i === current && "text-foreground",
-            )}
-          >
-            <span
-              className={cn(
-                "grid size-5 place-items-center rounded-full border-[1.5px] border-border-strong text-[10px]",
-                i < current && "border-success bg-success text-background",
-                i === current &&
-                  "border-primary bg-primary text-primary-foreground shadow-[0_0_0_4px_color-mix(in_oklab,var(--primary)_22%,transparent)]",
+    <nav className="min-h-0 overflow-y-auto border-r px-3 py-5">
+      <ol className="relative">
+        {STAGES.map((s, i) => {
+          const done = i < props.current;
+          const now = i === props.current;
+          const locked = i > props.current;
+          return (
+            <li key={s} className="relative pb-5 pl-8 last:pb-0">
+              {i < STAGES.length - 1 && (
+                <span className={cn("absolute left-[9px] top-6 bottom-0 w-px", done ? "bg-success/60" : "bg-border-strong")} />
               )}
-            >
-              {i < current ? <Check size={11} /> : i + 1}
-            </span>
-            {s}
-          </span>
-          {i < STAGES.length - 1 && <span className="mx-2 h-px w-7 bg-border-strong" />}
-        </li>
-      ))}
-    </ol>
+              <span
+                className={cn(
+                  "absolute left-0 top-0.5 grid size-5 place-items-center rounded-full border-[1.5px] border-border-strong text-[10px] text-faint",
+                  done && "border-success bg-success text-background",
+                  now && "border-primary bg-primary text-primary-foreground shadow-[0_0_0_4px_color-mix(in_oklab,var(--primary)_20%,transparent)]",
+                )}
+              >
+                {done ? <Check size={11} /> : i + 1}
+              </span>
+              <div className={cn("text-[13px] font-semibold", locked ? "text-faint" : "text-foreground")}>{s}</div>
+              <ul className="mt-1 space-y-0.5">
+                {STAGE_ARTIFACTS[i].map((a, j) => {
+                  const active = props.open.stage === i && props.open.artifact === j;
+                  return (
+                    <li key={a}>
+                      <button
+                        disabled={locked}
+                        onClick={() => props.onOpen({ stage: i, artifact: j })}
+                        className={cn(
+                          "flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[12.5px] text-muted-foreground hover:bg-surface hover:text-foreground disabled:cursor-default disabled:text-faint disabled:hover:bg-transparent",
+                          active && "bg-surface text-foreground shadow-[inset_0_0_0_1px_var(--border)]",
+                        )}
+                      >
+                        {locked && <Lock size={11} className="shrink-0 opacity-60" />}
+                        {a}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
   );
 }
 
-const TONES = {
-  ok: "text-success bg-[color-mix(in_oklab,var(--success)_14%,transparent)]",
-  wip: "text-warning bg-[color-mix(in_oklab,var(--warning)_14%,transparent)]",
-  todo: "text-muted-foreground bg-surface",
-};
-
-function Card(props: { title: string; tag: string; tone: keyof typeof TONES; children: React.ReactNode }) {
+function Brief(props: { brief: Partial<Record<BriefField, string>>; lastFilled?: BriefField }) {
   return (
-    <div className="rounded-xl border bg-[color-mix(in_oklab,var(--card)_85%,var(--background))] p-3.5">
-      <div className="mb-2 flex items-center justify-between text-[13px] font-semibold">
-        {props.title}
-        <span className={cn("rounded-full px-2 text-[11px] font-medium", TONES[props.tone])}>{props.tag}</span>
+    <article className="mx-auto max-w-2xl">
+      <h2 className="text-lg font-semibold tracking-tight">Бриф</h2>
+      <p className="mb-6 mt-1 text-[13px] text-faint">
+        Что агент должен делать – своими словами. Билдер заполняет поля по твоим ответам в чате.
+      </p>
+      <div className="space-y-2.5">
+        {FIELDS.map((f) => {
+          const value = props.brief[f];
+          return (
+            <section
+              key={f + (value ?? "")}
+              className={cn(
+                "rounded-xl border px-4 py-3 transition-colors",
+                value ? "bg-card" : "border-dashed bg-transparent",
+                props.lastFilled === f && value && "animate-[flash_1.6s_ease-out]",
+              )}
+            >
+              <div className="mb-1 flex items-center gap-2 text-[12px] font-semibold text-muted-foreground">
+                <span className={cn("size-1.5 rounded-full", value ? "bg-success" : "bg-border-strong")} />
+                {BRIEF_LABELS[f]}
+              </div>
+              {value ? (
+                <p className="text-[13.5px] text-foreground">{value}</p>
+              ) : (
+                <p className="text-[13px] italic text-faint">{BRIEF_QUESTIONS[f]}</p>
+              )}
+            </section>
+          );
+        })}
       </div>
-      {props.children}
+    </article>
+  );
+}
+
+function Later({ artifact }: { artifact: string }) {
+  return (
+    <div className="grid h-full place-items-center text-center">
+      <div>
+        <Boat size={40} />
+        <p className="mt-3 text-sm font-semibold">{artifact}</p>
+        <p className="mt-1 text-[13px] text-faint">Появится на этом этапе – билдер подготовит его вместе с тобой.</p>
+      </div>
+    </div>
+  );
+}
+
+function Progress({ value, total }: { value: number; total: number }) {
+  const r = 9;
+  const c = 2 * Math.PI * r;
+  return (
+    <div className="flex items-center gap-2 text-[12.5px] font-medium text-muted-foreground">
+      <svg width="24" height="24" viewBox="0 0 24 24" className="-rotate-90">
+        <circle cx="12" cy="12" r={r} fill="none" stroke="var(--border-strong)" strokeWidth="2.5" />
+        <circle
+          cx="12"
+          cy="12"
+          r={r}
+          fill="none"
+          stroke="var(--primary)"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={c * (1 - value / total)}
+          style={{ transition: "stroke-dashoffset .5s" }}
+        />
+      </svg>
+      {value} из {total}
     </div>
   );
 }

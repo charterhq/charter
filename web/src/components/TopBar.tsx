@@ -2,10 +2,10 @@ import { Moon, Sun } from "lucide-react";
 import { Boat } from "./Mascot";
 import { cn } from "@/lib/utils";
 
-export type View = "canvas" | "agents" | "journal";
+export type View = "builder" | "agents" | "journal";
 
 const NAV: { id: View; label: string }[] = [
-  { id: "canvas", label: "Холст" },
+  { id: "builder", label: "Создать агента" },
   { id: "agents", label: "Агенты" },
   { id: "journal", label: "Журнал" },
 ];

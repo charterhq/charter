@@ -1,10 +1,8 @@
-import { AssistantRuntimeProvider, useLocalRuntime } from "@assistant-ui/react";
 import { useEffect, useState } from "react";
 import { Canvas } from "./components/Canvas";
 import { Chat } from "./components/Chat";
 import { CommandPalette, type Action } from "./components/CommandPalette";
 import { TopBar, type View } from "./components/TopBar";
-import { builderMock } from "./lib/builder-mock";
 
 const THEME_KEY = "charter.theme";
 
@@ -17,8 +15,7 @@ function readTheme(): boolean {
 }
 
 export default function App() {
-  const runtime = useLocalRuntime(builderMock);
-  const [view, setView] = useState<View>("canvas");
+  const [view, setView] = useState<View>("builder");
   const [palette, setPalette] = useState(false);
   const [dark, setDark] = useState(readTheme);
 
@@ -32,17 +29,17 @@ export default function App() {
   }, [dark]);
 
   const actions: Action[] = [
-    { id: "new", label: "Новый агент", hint: "холст", run: () => setView("canvas") },
+    { id: "new", label: "Создать агента", hint: "билдер", run: () => setView("builder") },
     { id: "agents", label: "Все агенты", run: () => setView("agents") },
     { id: "journal", label: "Журнал прогонов", run: () => setView("journal") },
     { id: "theme", label: dark ? "Светлая тема" : "Темная тема", run: () => setDark(!dark) },
   ];
 
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
+    <>
       <div className="flex h-full flex-col">
         <TopBar view={view} onView={setView} onPalette={() => setPalette(true)} dark={dark} onTheme={() => setDark(!dark)} />
-        {view === "canvas" ? (
+        {view === "builder" ? (
           <main className="grid min-h-0 flex-1 gap-4 p-4 md:grid-cols-[minmax(300px,1fr)_2fr]">
             <Chat />
             <Canvas />
@@ -54,6 +51,6 @@ export default function App() {
         )}
       </div>
       <CommandPalette open={palette} onOpenChange={setPalette} actions={actions} />
-    </AssistantRuntimeProvider>
+    </>
   );
 }

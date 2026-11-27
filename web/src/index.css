@@ -98,3 +98,13 @@
     transform: translateY(-4px) rotate(-2deg);
   }
 }
+
+@keyframes flash {
+  0% {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 45%, transparent);
+    border-color: var(--primary);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
