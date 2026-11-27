@@ -20,6 +20,11 @@ services:
     environment:
       CLICKHOUSE_USER: charter
       CLICKHOUSE_PASSWORD: charter
+    volumes:
+      - ../clickhouse/config.d/charter.xml:/etc/clickhouse-server/config.d/charter.xml:ro
+      - ../clickhouse/users.d/charter.xml:/etc/clickhouse-server/users.d/charter.xml:ro
+    # ClickHouse reads the cgroup limit and caps its own memory at 90% of it.
+    mem_limit: 1g
     ports:
       - "58123:8123"
     healthcheck:

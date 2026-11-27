@@ -1,0 +1,61 @@
+<!--
+  ClickHouse server settings for the Charter run journal.
+  Defaults of the official image target a dedicated analytics host: multi-GB caches,
+  wide merge pools and a dozen system tables that log ClickHouse itself every second.
+  On a journal host that self-telemetry outgrows the journal and keeps merges busy.
+  Mount into /etc/clickhouse-server/config.d/.
+-->
+<clickhouse>
+    <logger>
+        <level>warning</level>
+    </logger>
+
+    <!-- Self-telemetry with no use for the journal: off. -->
+    <trace_log remove="1"/>
+    <text_log remove="1"/>
+    <metric_log remove="1"/>
+    <asynchronous_metric_log remove="1"/>
+    <query_metric_log remove="1"/>
+    <query_thread_log remove="1"/>
+    <query_views_log remove="1"/>
+    <processors_profile_log remove="1"/>
+    <opentelemetry_span_log remove="1"/>
+    <iceberg_metadata_log remove="1"/>
+    <blob_storage_log remove="1"/>
+    <asynchronous_insert_log remove="1"/>
+
+    <!-- Kept for troubleshooting, with a short retention. -->
+    <query_log>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </query_log>
+    <part_log>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </part_log>
+    <error_log>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </error_log>
+
+    <!-- Caches sized for one journal table, not for a warehouse. -->
+    <mark_cache_size>268435456</mark_cache_size>
+    <index_mark_cache_size>67108864</index_mark_cache_size>
+    <primary_index_cache_size>67108864</primary_index_cache_size>
+    <uncompressed_cache_size>0</uncompressed_cache_size>
+
+    <!-- The journal gets batched inserts from one writer: few merges at a time. -->
+    <background_pool_size>4</background_pool_size>
+    <background_merges_mutations_concurrency_ratio>2</background_merges_mutations_concurrency_ratio>
+    <background_schedule_pool_size>32</background_schedule_pool_size>
+    <background_common_pool_size>4</background_common_pool_size>
+    <background_move_pool_size>2</background_move_pool_size>
+    <background_fetches_pool_size>2</background_fetches_pool_size>
+    <background_buffer_flush_schedule_pool_size>2</background_buffer_flush_schedule_pool_size>
+    <background_message_broker_schedule_pool_size>2</background_message_broker_schedule_pool_size>
+    <background_distributed_schedule_pool_size>2</background_distributed_schedule_pool_size>
+
+    <!-- Thresholds counted in free pool slots must fit the smaller pool (4 * 2 = 8 slots). -->
+    <merge_tree>
+        <number_of_free_entries_in_pool_to_execute_mutation>4</number_of_free_entries_in_pool_to_execute_mutation>
+        <number_of_free_entries_in_pool_to_lower_max_size_of_merge>4</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+        <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>4</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
+    </merge_tree>
+</clickhouse>
