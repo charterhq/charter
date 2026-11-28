@@ -69,6 +69,12 @@ const PLAN_ACTIVITY: PlanActivity[][] = [
   ],
 ];
 
+const PLAN_FAIL = 2;
+const PLAN_RETRY: PlanActivity[] = [
+  { icon: <Play size={12} />, text: "Повторил запрос в Loki" },
+  { icon: <FileText size={12} />, text: "Прочитал логи за 15 минут" },
+];
+
 function usePlay(count: number, ms: number) {
   const [at, setAt] = useState(count);
   useEffect(() => {
@@ -164,26 +170,35 @@ export function KitBlocks({ Section }: { Section: (p: { title: string; children:
   ]);
   const [approved, setApproved] = useState(false);
   const [planPaused, setPlanPaused] = useState(false);
-  const [planAt, replayPlan] = usePlay(plan.length, planPaused ? 1e9 : 2200);
-  // Lines of the running step come one by one: the first a bit sooner, like a tool call that starts.
-  const [lines, setLines] = useState({ step: planAt, n: 0 });
-  const lineAt = lines.step === planAt ? lines.n : 0;
+  // The demo run: lines of the running step come one by one, the first a bit sooner; the third step
+  // fails once, Retry runs it again with two more lines, Skip moves on.
+  const [run, setRun] = useState({ at: 0, line: 0, failed: false, retried: false, skipped: [] as number[] });
+  const runLines = (i: number) => [...PLAN_ACTIVITY[i % PLAN_ACTIVITY.length], ...(i === PLAN_FAIL && run.retried ? PLAN_RETRY : [])];
   useEffect(() => {
-    if (planPaused || lineAt >= (PLAN_ACTIVITY[planAt % PLAN_ACTIVITY.length]?.length ?? 0)) return;
-    const id = window.setTimeout(() => setLines({ step: planAt, n: lineAt + 1 }), lineAt === 0 ? 360 : 540);
+    if (!approved || planPaused || run.failed || run.at >= plan.length) return;
+    const lines = runLines(run.at);
+    const [ms, next] =
+      run.line < lines.length
+        ? [run.line === 0 ? 360 : 540, { ...run, line: run.line + 1 }]
+        : run.at === PLAN_FAIL && !run.retried
+          ? [520, { ...run, failed: true }]
+          : [480, { ...run, at: run.at + 1, line: 0 }];
+    const id = window.setTimeout(() => setRun(next), ms);
     return () => window.clearTimeout(id);
-  }, [lineAt, planAt, planPaused]);
+  });
+  const replayPlan = () => setRun({ at: 0, line: 0, failed: false, retried: false, skipped: [] });
   const live: PlanStep[] = plan.map((s, i) => ({
     ...s,
-    status: i < planAt ? "done" : i === planAt ? "running" : "todo",
-    meta: i < planAt ? `${(i * 7 + 12) % 40}s` : undefined,
+    status: i < run.at ? (run.skipped.includes(i) ? "skipped" : "done") : i === run.at ? (run.failed ? "error" : "running") : "todo",
+    meta: i < run.at ? `${(i * 7 + 12) % 40}s` : undefined,
     note:
       i === 2 ? (
         <>
           <Boat size={12} /> Добавил агент
         </>
       ) : undefined,
-    activity: i <= planAt ? PLAN_ACTIVITY[i % PLAN_ACTIVITY.length].slice(0, i === planAt ? lineAt : undefined) : undefined,
+    activity: i <= run.at ? runLines(i).slice(0, i === run.at ? run.line : undefined) : undefined,
+    error: i === PLAN_FAIL ? "Loki не ответил за 30 с: логи за 15 минут не получены" : undefined,
   }));
 
   const [qAt, replayResearch] = usePlay(QUERIES.length + 1, 1000);
@@ -311,8 +326,8 @@ export function KitBlocks({ Section }: { Section: (p: { title: string; children:
               onChange={setPlan}
               onKeepPlanning={() => undefined}
               onApprove={() => {
-                setApproved(true);
                 replayPlan();
+                setApproved(true);
               }}
             />
           ) : (
@@ -322,6 +337,11 @@ export function KitBlocks({ Section }: { Section: (p: { title: string; children:
               paused={planPaused}
               onPause={() => setPlanPaused(true)}
               onResume={() => setPlanPaused(false)}
+              onRetryStep={() => setRun({ ...run, failed: false, retried: true })}
+              onSkipStep={() => setRun({ ...run, failed: false, at: run.at + 1, line: 0, skipped: [...run.skipped, run.at] })}
+              elapsed="1m 12s"
+              summary="Алерт api-gateway разобран: сертификат истек 14 минут назад, дежурному ушел первый шаг из runbook и ссылка на панель."
+              onStartOver={() => setApproved(false)}
             />
           )}
           {approved && (

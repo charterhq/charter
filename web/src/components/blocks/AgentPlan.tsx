@@ -1,6 +1,6 @@
-import { GripVertical, Pause, Play, Plus, X } from "lucide-react";
+import { GripVertical, Pause, Play, Plus, RotateCcw, SkipForward, X } from "lucide-react";
 import { m, useDragControls, useMotionValue } from "motion/react";
-import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Button } from "../arc/button/button";
 import { Collapse } from "./Collapse";
 import { Shimmer } from "./Shimmer";
@@ -10,7 +10,8 @@ import { cn } from "@/lib/utils";
 
 // The plan an agent writes before it acts. While it is a draft, people rename, drag or move with
 // Alt+Arrow, remove and add steps; once approved it turns into a live checklist with a progress bar,
-// what the current step is doing under it, and how long each step took. Data and changes go through props.
+// what the current step is doing under it, and how long each step took. A step that fails says why and
+// offers Retry or Skip; a finished plan sums up what came of it. Data and changes go through props.
 
 export type PlanStep = {
   id: string;
@@ -22,6 +23,8 @@ export type PlanStep = {
   note?: ReactNode;
   // What the step is doing right now, one line per action as it happens; shows under it while it runs.
   activity?: PlanActivity[];
+  // Why the step failed; shows with Retry and Skip while its status is "error".
+  error?: ReactNode;
 };
 
 export type PlanActivity = { id?: string; icon?: ReactNode; text: ReactNode };
@@ -39,13 +42,23 @@ export type AgentPlanProps = {
   paused?: boolean;
   onPause?: () => void;
   onResume?: () => void;
+  onRetryStep?: (id: string) => void;
+  onSkipStep?: (id: string) => void;
+  // When the plan is done: how long it took, already formatted, and what came of it. A string summary
+  // comes in a few words at a time, like a reply being written.
+  elapsed?: string;
+  summary?: ReactNode;
+  onStartOver?: () => void;
 };
 
-export function AgentPlan({ goal, author, steps, draft, onChange, onApprove, onKeepPlanning, paused, onPause, onResume }: AgentPlanProps) {
+export function AgentPlan(props: AgentPlanProps) {
+  const { goal, author, steps, draft, onChange, onApprove, onKeepPlanning, paused, onPause, onResume, onRetryStep, onSkipStep, elapsed, summary, onStartOver } =
+    props;
   const t = useT();
   const editable = draft && !!onChange;
   const done = steps.filter((s) => s.status === "done" || s.status === "skipped").length;
   const current = steps.findIndex((s) => s.status === "running" || s.status === "waiting");
+  const failed = steps.findIndex((s) => s.status === "error");
   const finished = !draft && done === steps.length && steps.length > 0;
   const [adding, setAdding] = useState("");
   const hint = useId();
@@ -115,7 +128,7 @@ export function AgentPlan({ goal, author, steps, draft, onChange, onApprove, onK
                 onRemove={() => onChange!(steps.filter((x) => x.id !== s.id))}
               />
             ))
-          : steps.map((s, i) => <LiveRow key={s.id} step={s} index={i} draft={draft} paused={paused} />)}
+          : steps.map((s, i) => <LiveRow key={s.id} step={s} index={i} draft={draft} paused={paused} onRetry={onRetryStep} onSkip={onSkipStep} />)}
         {editable && (
           <li className="flex min-h-9 items-center gap-2 px-1 text-[14px]">
             <Plus size={15} aria-hidden className="mx-1.5 shrink-0 text-faint" />
@@ -146,10 +159,25 @@ export function AgentPlan({ goal, author, steps, draft, onChange, onApprove, onK
           )}
         </footer>
       )}
-      {!draft && (current >= 0 || finished || onPause || onResume) && (
+      {!draft && finished && (
+        <footer className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-t px-4 py-3 text-[13px] leading-5 text-muted-foreground">
+          <p role="status" className="min-w-0 flex-1 basis-60">
+            <strong className="font-semibold text-foreground">{elapsed ? t.blocks.planDoneIn(elapsed) : t.blocks.planDone}</strong>
+            {summary != null && <> {typeof summary === "string" ? <Reveal text={summary} /> : summary}</>}
+          </p>
+          {onStartOver && (
+            <Button size="sm" variant="ghost" onClick={onStartOver} className="-my-1">
+              <RotateCcw size={13} aria-hidden /> {t.blocks.startOver}
+            </Button>
+          )}
+        </footer>
+      )}
+      {!draft && !finished && (current >= 0 || failed >= 0 || onPause || onResume) && (
         <footer className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-t px-4 py-2.5 text-[13px] text-muted-foreground">
-          <span role="status">{finished ? t.blocks.planDone : paused ? t.blocks.planPaused : current >= 0 ? t.blocks.workingOnStep(current + 1) : null}</span>
-          {!finished &&
+          <span role="status">
+            {failed >= 0 ? t.blocks.stepFailed(failed + 1) : paused ? t.blocks.planPaused : current >= 0 ? t.blocks.workingOnStep(current + 1) : null}
+          </span>
+          {failed < 0 &&
             (paused
               ? onResume && (
                   <Button size="sm" variant="secondary" onClick={onResume}>
@@ -167,7 +195,51 @@ export function AgentPlan({ goal, author, steps, draft, onChange, onApprove, onK
   );
 }
 
-function LiveRow({ step: s, index, draft, paused }: { step: PlanStep; index: number; draft?: boolean; paused?: boolean }) {
+// A summary comes in a few words at a time: chunks of 3 to 6 words fade in 34ms apart, all in CSS.
+function Reveal({ text }: { text: string }) {
+  const chunks = useMemo(() => {
+    const words = text.match(/\S+\s*/g) ?? [];
+    const sizes = [4, 3, 5, 4, 6];
+    const out: string[] = [];
+    let cur = "";
+    let n = 0;
+    for (const w of words) {
+      cur += w;
+      if (++n >= sizes[out.length % sizes.length] || cur.length >= 36) {
+        out.push(cur);
+        cur = "";
+        n = 0;
+      }
+    }
+    if (cur) out.push(cur);
+    return out;
+  }, [text]);
+  return (
+    <>
+      {chunks.map((c, i) => (
+        <span key={i} className="animate-[fade-in_.3s_cubic-bezier(.16,1,.3,1)_backwards]" style={{ animationDelay: `${i * 34}ms` }}>
+          {c}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function LiveRow({
+  step: s,
+  index,
+  draft,
+  paused,
+  onRetry,
+  onSkip,
+}: {
+  step: PlanStep;
+  index: number;
+  draft?: boolean;
+  paused?: boolean;
+  onRetry?: (id: string) => void;
+  onSkip?: (id: string) => void;
+}) {
   const t = useT();
   return (
     <li className="px-2 py-1.5 text-[14px]">
@@ -189,17 +261,23 @@ function LiveRow({ step: s, index, draft, paused }: { step: PlanStep; index: num
               : s.status === "done"
                 ? "text-foreground/85"
                 : s.status === "skipped"
-                  ? "text-faint line-through"
+                  ? "text-muted-foreground/80"
                   : "text-foreground",
           )}
         >
           <Shimmer active={s.status === "running" && !paused}>{s.title}</Shimmer>
         </span>
-        {s.meta && <span className="shrink-0 text-[12px] leading-5 tabular-nums text-faint">{s.meta}</span>}
+        {s.status === "skipped" ? (
+          <span aria-hidden className="shrink-0 animate-[fade-in_.15s_ease-out] text-[12px] leading-5 text-faint">
+            {t.blocks.status.skipped}
+          </span>
+        ) : (
+          s.meta && <span className="shrink-0 animate-[fade-in_.15s_ease-out] text-[12px] leading-5 tabular-nums text-faint">{s.meta}</span>
+        )}
       </div>
       {s.note && <div className="mt-0.5 flex items-center gap-1.5 pl-7 text-[12px] text-faint">{s.note}</div>}
       {s.activity && (
-        <Collapse open={s.status === "running" && s.activity.length > 0}>
+        <Collapse open={(s.status === "running" || s.status === "error") && s.activity.length > 0}>
           {/* Lines come one by one: Collapse grows the row on a spring, each line fades in. */}
           <ul aria-label={t.blocks.stepActivity} className="space-y-1 pb-0.5 pl-7 pt-1.5 text-[13px] text-muted-foreground">
             {s.activity.map((a, i) => (
@@ -215,6 +293,27 @@ function LiveRow({ step: s, index, draft, paused }: { step: PlanStep; index: num
           </ul>
         </Collapse>
       )}
+      <Collapse open={s.status === "error"}>
+        <div className="space-y-2 pb-1 pl-7 pt-1.5 text-[13px] leading-5">
+          <p className="text-muted-foreground">
+            <span className="font-medium text-destructive">{t.blocks.status.error}</span> {s.error ?? t.blocks.stepDidNotFinish}
+          </p>
+          {(onRetry || onSkip) && (
+            <div className="flex flex-wrap gap-2">
+              {onRetry && (
+                <Button size="sm" onClick={() => onRetry(s.id)} aria-label={`${t.blocks.retryCall}: ${s.title}`}>
+                  <RotateCcw size={13} aria-hidden /> {t.blocks.retryCall}
+                </Button>
+              )}
+              {onSkip && (
+                <Button size="sm" variant="secondary" onClick={() => onSkip(s.id)} aria-label={`${t.blocks.skipStep}: ${s.title}`}>
+                  <SkipForward size={13} aria-hidden /> {t.blocks.skipStep}
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      </Collapse>
     </li>
   );
 }

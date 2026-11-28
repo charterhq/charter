@@ -46,15 +46,25 @@ export function StatusIcon({ status, size = 14, disc }: { status: StepStatus; si
           </span>
         ) : status === "done" ? (
           <Check size={size} draw={changed} />
+        ) : status === "error" && disc ? (
+          <span
+            className="grid place-items-center rounded-full bg-destructive text-[11px] font-bold leading-none text-background"
+            style={{ width: size, height: size }}
+            aria-hidden
+          >
+            !
+          </span>
         ) : status === "error" ? (
           <CircleAlert size={size} strokeWidth={2} className="text-destructive" aria-hidden />
         ) : status === "waiting" ? (
           <Hand size={size} strokeWidth={2} className="text-warning" aria-hidden />
         ) : disc ? (
           <span
-            className={cn("rounded-full border-[1.5px] border-border-strong", status === "skipped" && "border-dashed opacity-60")}
+            className={cn("grid place-items-center rounded-full border-[1.5px] border-border-strong", status === "skipped" && "border-dashed opacity-70")}
             style={{ width: size - 2, height: size - 2 }}
-          />
+          >
+            {status === "skipped" && <span className="h-[1.5px] w-1.5 rounded-full bg-border-strong" />}
+          </span>
         ) : (
           <Circle size={size - 2} strokeWidth={1.75} className={cn("text-border-strong", status === "skipped" && "opacity-50")} aria-hidden />
         )}
