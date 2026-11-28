@@ -95,6 +95,7 @@ export default function App() {
         <TopBar
           view={view}
           onView={setView}
+          signedIn={d.status !== "login"}
           onPalette={() => setPalette(true)}
           dark={dark}
           onDark={setDark}
@@ -207,7 +208,7 @@ function Login({ error }: { error?: string }) {
         {error && <p className="mt-2 text-[13px] text-destructive">{error}</p>}
         {cfg?.oidc && (
           <>
-            <p className="mt-1 text-[14px] text-faint">Войди корпоративной учетной записью через Keycloak.</p>
+            <p className="mt-1 text-[14px] text-faint">Войди корпоративной учетной записью через единый вход.</p>
             <button
               autoFocus
               onClick={login}

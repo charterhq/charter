@@ -29,13 +29,15 @@
   --surface: oklch(97.8% 0 0);
   --muted: var(--surface);
   --muted-foreground: oklch(46% 0 0);
-  --faint: oklch(59% 0 0);
+  /* 55%: the faintest grey that still reads at 4.5:1 on white. */
+  --faint: oklch(55% 0 0);
   --border: oklch(93.5% 0 0);
   --border-subtle: oklch(96.5% 0 0);
   --border-strong: oklch(82% 0 0);
   --input: var(--border-strong);
-  --primary: oklch(33% 0 0);
-  --primary-hover: oklch(24% 0 0);
+  /* Primary actions are ink, the same as the Arc button. */
+  --primary: oklch(15% 0 0);
+  --primary-hover: oklch(28% 0 0);
   --primary-foreground: oklch(100% 0 0);
   --accent: oklch(33% 0 0 / 0.08);
   --accent-foreground: var(--foreground);
@@ -94,8 +96,8 @@
   --border: oklch(29% 0 0);
   --border-subtle: oklch(25% 0 0);
   --border-strong: oklch(40% 0 0);
-  --primary: oklch(80% 0 0);
-  --primary-hover: oklch(91% 0 0);
+  --primary: oklch(96% 0 0);
+  --primary-hover: oklch(86% 0 0);
   --primary-foreground: oklch(19% 0 0);
   --accent: oklch(80% 0 0 / 0.1);
   --ring: oklch(79% 0.095 236);

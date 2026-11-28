@@ -212,7 +212,7 @@ function Bot({ children, fields }: { children: React.ReactNode; fields: string[]
         <Boat size={18} />
       </span>
       <div className="min-w-0 pt-0.5 text-[15px] [overflow-wrap:anywhere] whitespace-pre-wrap">
-        <div className="mb-0.5 text-[12px] font-semibold text-sky">Билдер</div>
+        <div className="mb-0.5 text-[12px] font-semibold text-foreground">Билдер</div>
         {children}
         {cards.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1.5">

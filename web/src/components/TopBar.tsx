@@ -18,6 +18,8 @@ const NAV: { id: View; label: string }[] = [
 export function TopBar(
   props: Prefs & {
     view: View;
+    // Signed out, the header keeps only the logo and the theme switch.
+    signedIn: boolean;
     onView: (v: View) => void;
     onPalette: () => void;
   },
@@ -36,7 +38,7 @@ export function TopBar(
     const ro = new ResizeObserver(() => (subscribed ? place(false) : (subscribed = true)));
     ro.observe(el);
     return () => ro.disconnect();
-  }, [props.view]);
+  }, [props.view, props.signedIn]);
 
   return (
     <header className="flex items-center gap-2 border-b px-3 py-2.5 sm:gap-4 sm:px-5 sm:py-3">
@@ -44,41 +46,49 @@ export function TopBar(
         <Boat />
         <span className="hidden sm:inline">charter</span>
       </div>
-      <nav ref={nav} className="relative flex min-w-0 gap-0.5 overflow-x-auto sm:ml-2">
-        {pill && (
-          <span
-            aria-hidden
-            className={cn(
-              "absolute inset-y-0 left-0 rounded-md bg-surface shadow-[inset_0_0_0_1px_var(--border)]",
-              pill.animate && "transition-[transform,width] duration-300 ease-[cubic-bezier(0.3,0.7,0.2,1)]",
-            )}
-            style={{ transform: `translateX(${pill.x}px)`, width: pill.w }}
-          />
-        )}
-        {NAV.map((n) => (
-          <button
-            key={n.id}
-            onClick={() => props.onView(n.id)}
-            aria-current={props.view === n.id ? "page" : undefined}
-            className={cn(
-              "relative shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[14px] font-medium text-muted-foreground transition-colors duration-300 hover:text-foreground sm:px-3",
-              props.view === n.id && "text-foreground",
-            )}
-          >
-            {n.label}
-          </button>
-        ))}
-      </nav>
-      <button
-        onClick={props.onPalette}
-        className="ml-auto hidden min-w-56 items-center gap-2 rounded-md border px-3 py-1.5 text-[13px] text-faint hover:border-border-strong sm:flex"
-      >
-        Найти или сделать…
-        <kbd className="ml-auto rounded border border-border-strong px-1.5 font-mono text-[12px] text-muted-foreground">{isMac ? "⌘K" : "Ctrl\u00a0K"}</kbd>
-      </button>
-      <div className="ml-auto sm:ml-0">
-        <UserMenu {...props} />
-      </div>
+      {props.signedIn && (
+        <nav ref={nav} className="relative flex min-w-0 gap-0.5 overflow-x-auto sm:ml-2">
+          {pill && (
+            <span
+              aria-hidden
+              className={cn(
+                "absolute inset-y-0 left-0 rounded-md bg-surface shadow-[inset_0_0_0_1px_var(--border)]",
+                pill.animate && "transition-[transform,width] duration-300 ease-[cubic-bezier(0.3,0.7,0.2,1)]",
+              )}
+              style={{ transform: `translateX(${pill.x}px)`, width: pill.w }}
+            />
+          )}
+          {NAV.map((n) => (
+            <button
+              key={n.id}
+              onClick={() => props.onView(n.id)}
+              aria-current={props.view === n.id ? "page" : undefined}
+              className={cn(
+                "relative shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[14px] font-medium text-muted-foreground transition-colors duration-300 hover:text-foreground sm:px-3",
+                props.view === n.id && "text-foreground",
+              )}
+            >
+              {n.label}
+            </button>
+          ))}
+        </nav>
+      )}
+      {props.signedIn && (
+        <button
+          onClick={props.onPalette}
+          className="ml-auto hidden min-w-56 items-center gap-2 rounded-md border px-3 py-1.5 text-[13px] text-faint hover:border-border-strong sm:flex"
+        >
+          Найти или сделать…
+          <kbd className="ml-auto rounded border border-border-strong px-1.5 font-mono text-[12px] text-muted-foreground">{isMac ? "⌘K" : "Ctrl\u00a0K"}</kbd>
+        </button>
+      )}
+      {props.signedIn ? (
+        <div className="ml-auto sm:ml-0">
+          <UserMenu {...props} />
+        </div>
+      ) : (
+        <span className="ml-auto" />
+      )}
       <button
         onClick={() => props.onDark(!props.dark)}
         aria-label="Сменить тему"
