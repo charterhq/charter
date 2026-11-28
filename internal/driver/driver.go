@@ -124,8 +124,10 @@ type Incoming struct {
 	Conversation              string
 	MessageID                 string
 	Author                    string
-	Text                      string
-	Reply                     Target
+	// Groups are the author's OIDC groups when the core knows them (people of the UI).
+	Groups []string `json:"-"`
+	Text   string
+	Reply  Target
 }
 
 // Listener says that an agent hears messages through an account of a system: a channel driver

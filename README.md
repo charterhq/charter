@@ -87,7 +87,7 @@ A message is a run like any other. The core keeps the conversation (`conversatio
 {"conversation": "...", "message": {"author": "...", "text": "..."}, "history": [{"role": "user|agent", "author": "...", "text": "...", "at": "..."}]}
 ```
 
-`users` on a message source in the connection lists who may talk to the agent; others get 403 and the driver tells them. The core knows no chat: a driver maps its threads to conversation IDs.
+`users` on a message source in the connection lists who may talk to the agent; others get 403 and the driver tells them. A source with `receiver: web` may also name `groups`: OIDC groups of people who talk to the agent in the UI. The core knows no chat: a driver maps its threads to conversation IDs.
 
 An act scenario in a conversation names the output field with the action arguments, `spec.action_input: draft`. A turn without the field is an answer; a turn with it shows the answer with Approve and Reject buttons bound to the draft fingerprint. A newer message in the conversation replaces a pending draft. After the decision the template block `done` or `rejected` renders the outcome, with `.action.input`, `.action.result` and `.action.by`.
 
@@ -133,11 +133,27 @@ A message source with `receiver: web` in the connection takes messages through t
 | `GET` | `/v1/objects/{id}/conversations/{cid}/messages?before=&after=&limit=` | |
 | `POST` | `/v1/objects/{id}/conversations/{cid}/messages` | `{message_id, text}` → 202 `{run_id, seq, duplicate}` |
 
-Every change of an object is an event numbered in the transaction of the change: `object`, `members`, `conversation`, `message`, `state`, `run` (`accepted`, `running`, `waiting`, `done` with the status). A stream that needs events no longer kept gets `reset` and reads the snapshot again. Callers named in `CHARTER_PLATFORM` see every object; others get 404 for objects where they have no role. Errors carry a `code` next to the text.
+Every change of an object is an event numbered in the transaction of the change: `object`, `members`, `conversation`, `message`, `state`, `run` (`accepted`, `running`, `waiting`, `done` with the status). A stream that needs events no longer kept gets `reset` and reads the snapshot again. Callers named in `CHARTER_PLATFORM` or in the OIDC group `CHARTER_PLATFORM_GROUP` see every object; others get 404 for objects where they have no role. Errors carry a `code` next to the text.
 
 Events are kept 30 days, an object without activity for 30 days goes to the archive, the conversations of an object archived 180 days ago are deleted.
 
 The Mattermost driver serves the logical system `chat` (`CHARTER_MM_SYSTEM`) and listens as each agent bot named in `spec.identities` with that system and a token in `CHARTER_MM_BOTS`, over a websocket pinged every 30 seconds and reconnected when a pong is late. A post reaches the agent when it names the bot as `@name` (not `@channel` or `@here`) or comes in a direct message; a thread is a conversation, in direct messages the channel is. `channels` on the message source binds a connection to channel IDs. The agent answers as its own bot.
+
+## People
+
+Drivers, CI and `agentctl` call the API with bearer tokens from `CHARTER_API_TOKENS`. People log in through OpenID Connect (Keycloak or another provider): the code flow with PKCE, the core is a confidential client.
+
+| Variable | Meaning |
+|---|---|
+| `CHARTER_OIDC_ISSUER` | issuer URL, e.g. `https://sso.example.com/realms/main`; empty turns people's login off |
+| `CHARTER_OIDC_CLIENT_ID`, `CHARTER_OIDC_CLIENT_SECRET` | the client of the core |
+| `CHARTER_OIDC_REDIRECT_URL` | the callback as the browser sees it, ending in `/v1/auth/callback` |
+| `CHARTER_OIDC_COOKIE_PATH` | path of the session cookie; by default the prefix of the redirect URL before `v1/` |
+| `CHARTER_PLATFORM_GROUP` | the group whose members see every object |
+
+A person is `preferred_username`; groups come from the `groups` claim (Keycloak's group membership mapper, a leading `/` is dropped). A session lives in the database, the browser holds its id in an HttpOnly cookie; it ends after 8 hours without use, and every 15 minutes the core takes the groups again with the refresh token, so a person removed or blocked at the provider loses access. A request with the cookie that changes something must come from the origin of the redirect URL with `X-Charter-Request: 1`. Endpoints of drivers and pipelines (launches, hooks, chat conversations, runs, packages, eval, switches) take bearer tokens only. A person answers a wait only as an owner of the object the run is about; waits of chat conversations are answered with the chat buttons.
+
+`GET /v1/auth/login?return_to=/path` starts a login, `POST /v1/auth/logout` ends it and returns the provider's `logout_url`, `GET /v1/me` says who the caller is.
 
 ## Drivers
 
@@ -153,7 +169,7 @@ export CHARTER_TEST_DATABASE_URL='postgres://charter:charter@localhost:55432/cha
 make test
 ```
 
-The web UI needs Node 22. `make web` builds it into `internal/webui/dist`, the next `go build` embeds it, agentd serves it at `/ui/`. `make web-dev` runs it with hot reload against agentd on `CHARTER_DEV_API` (default `http://localhost:8080`). The builder in the UI answers from a stub until the core has the web conversation API.
+The web UI needs Node 22. `make web` builds it into `internal/webui/dist`, the next `go build` embeds it, agentd serves it at `/ui/`. `make web-dev` runs it with hot reload against agentd on `CHARTER_DEV_API` (default `http://localhost:8080`). To log in locally, start Keycloak with `docker compose -f deploy/compose/dev.yml --profile oidc up -d --wait` (realm `charter`, users `jane.doe`, `john.roe`, `pat.lee`, the password is the name) and run agentd with the variables in the header of `deploy/compose/dev.yml`; behind the dev server the redirect URL is the dev server's, e.g. `http://localhost:5173/v1/auth/callback`.
 
 ## License
 

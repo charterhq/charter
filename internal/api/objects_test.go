@@ -24,6 +24,11 @@ const briefSchema = `{"type":"object","additionalProperties":false,"required":["
   "trigger":{"type":"string","title":"Trigger","description":"What starts it?"}}}`
 
 func setupObjects(t *testing.T, outputs ...string) (env, *api.Server) {
+	return setupObjectsWith(t, nil, outputs...)
+}
+
+// setupObjectsWith is setupObjects with groups on the web message source.
+func setupObjectsWith(t *testing.T, groups []string, outputs ...string) (env, *api.Server) {
 	t.Helper()
 	pool := testdb.New(t)
 	p := run.Package{
@@ -32,7 +37,7 @@ func setupObjects(t *testing.T, outputs ...string) (env, *api.Server) {
 			Triggers: []run.Trigger{{Type: "message", Source: "requests"}}}},
 		Object: &run.ObjectSpec{Schema: briefSchema, Stages: []run.Stage{{ID: "request", Title: "Request"}}},
 		Connections: map[string]run.Connection{"platform": {Name: "platform", Scenarios: []string{"intake"}, Status: run.ConnActive,
-			Triggers: map[string]run.ConnectionTrigger{"requests": {Receiver: run.ReceiverWeb}}}},
+			Triggers: map[string]run.ConnectionTrigger{"requests": {Receiver: run.ReceiverWeb, Groups: groups}}}},
 	}
 	b, _ := json.Marshal(p)
 	if _, err := registry.Apply(context.Background(), pool, registry.Agent{Name: "builder", Team: "platform", Owner: "o"}, "1.0.0", "sha", b); err != nil {
@@ -51,7 +56,7 @@ func setupObjects(t *testing.T, outputs ...string) (env, *api.Server) {
 		Platform: map[string]bool{"ops": true}, Log: slog.Default()}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(func() { s.StopStreams(); srv.Close() })
-	return env{srv: srv, pool: pool, ch: ch}, s
+	return env{srv: srv, pool: pool, ch: ch, s: s}, s
 }
 
 type sse struct {

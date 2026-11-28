@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -63,6 +62,9 @@ var (
 	ErrFingerprint  = driver.ErrFingerprint
 	ErrSameApprover = driver.ErrSameApprover
 	ErrSuspended    = driver.ErrSuspended
+	// ErrNotApprover means the person has no role on the object that lets them answer the wait,
+	// or the wait is not about an object (those are answered in their chat).
+	ErrNotApprover = errors.New("only an owner of the object answers this wait")
 )
 
 // ErrNoConnection means the agent's current version does not declare the connection.
@@ -360,7 +362,7 @@ func (e *Engine) converse(ctx context.Context, m driver.Incoming, obj Object) (s
 		return "", false, fmt.Errorf("%s/%s binds no message source %s: %w", m.Agent, m.Connection, m.Source, ErrNotEnabled)
 	case len(scenarios) > 1:
 		return "", false, fmt.Errorf("message source %s starts several scenarios: %w", m.Source, ErrNotEnabled)
-	case len(ct.Users) > 0 && !slices.Contains(ct.Users, m.Author):
+	case !ct.allows(m.Author, m.Groups):
 		return "", false, driver.ErrForbidden
 	}
 	payload, err := json.Marshal(m)
@@ -438,6 +440,16 @@ func Fingerprint(action json.RawMessage) (string, error) {
 
 // Resolve answers an approval wait. approve=false rejects the draft.
 func (e *Engine) Resolve(ctx context.Context, waitID, by, fingerprint string, approve bool) error {
+	return e.resolve(ctx, waitID, by, fingerprint, approve, false)
+}
+
+// ResolveAsOwner answers a wait for a person logged in to the UI: only an owner of the object the
+// run is about may answer, in the same transaction that answers.
+func (e *Engine) ResolveAsOwner(ctx context.Context, waitID, person, fingerprint string, approve bool) error {
+	return e.resolve(ctx, waitID, person, fingerprint, approve, true)
+}
+
+func (e *Engine) resolve(ctx context.Context, waitID, by, fingerprint string, approve, owner bool) error {
 	tx, err := e.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -446,21 +458,25 @@ func (e *Engine) Resolve(ctx context.Context, waitID, by, fingerprint string, ap
 
 	var runID uuid.UUID
 	var agent, connection, draftFP, initiator string
-	var distinct bool
+	var distinct, isOwner bool
 	err = tx.QueryRow(ctx, `
 		SELECT w.run_id, r.agent, r.connection, d.fingerprint, d.initiator,
-		       coalesce((v.package -> 'scenarios' -> r.scenario -> 'approval' ->> 'distinct_approver')::bool, false)
+		       coalesce((v.package -> 'scenarios' -> r.scenario -> 'approval' ->> 'distinct_approver')::bool, false),
+		       EXISTS (SELECT 1 FROM object_members m WHERE m.object_id = r.object_id AND m.person = $2 AND m.role = 'owner')
 		FROM waits w
 		JOIN drafts d ON d.id = w.draft_id
 		JOIN runs r ON r.id = w.run_id
 		JOIN agent_versions v ON v.id = r.agent_version_id
 		WHERE w.id = $1 AND w.state = 'open'
-		FOR UPDATE OF w`, waitID).Scan(&runID, &agent, &connection, &draftFP, &initiator, &distinct)
+		FOR UPDATE OF w`, waitID, by).Scan(&runID, &agent, &connection, &draftFP, &initiator, &distinct, &isOwner)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrWaitClosed
 	}
 	if err != nil {
 		return err
+	}
+	if owner && !isOwner {
+		return ErrNotApprover
 	}
 	if approve && fingerprint != draftFP {
 		return ErrFingerprint

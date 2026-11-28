@@ -4,7 +4,7 @@ import { Chat } from "./components/Chat";
 import { CommandPalette, type Action } from "./components/CommandPalette";
 import { TopBar, type View } from "./components/TopBar";
 import { Boat } from "./components/Mascot";
-import { setToken } from "./lib/api";
+import { login } from "./lib/api";
 import { boot, counted, draft, newAgent, useDraft } from "./lib/store";
 import { cn } from "./lib/utils";
 
@@ -152,10 +152,9 @@ export default function App() {
   );
 }
 
-// Until people sign in through OIDC, the UI asks once for an API token of the core.
+// Gate is the screen before the draft: loading, the login, or a core that did not answer.
 function Gate() {
   const d = useDraft();
-  const [value, setValue] = useState("");
   if (d.status === "loading")
     return (
       <main className="grid flex-1 place-items-center p-4 text-[15px] text-faint">
@@ -171,26 +170,15 @@ function Gate() {
         className="w-full max-w-sm rounded-xl border bg-card p-5 shadow-panel"
         onSubmit={(e) => {
           e.preventDefault();
-          if (d.status === "token") setToken(value.trim());
-          void boot();
+          if (d.status === "login") login();
+          else void boot();
         }}
       >
         <Boat size={36} />
-        {d.status === "token" ? (
+        {d.status === "login" ? (
           <>
             <h1 className="mt-3 text-lg font-semibold">Вход</h1>
-            <p className="mt-1 text-[14px] text-faint">
-              Пока нет входа через Keycloak, нужен токен API ядра. Он хранится только в этом браузере.
-            </p>
-            <input
-              autoFocus
-              type="password"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              aria-label="Токен API"
-              placeholder="Токен"
-              className="mt-4 w-full rounded-lg border bg-surface px-3 py-2 text-[15px] outline-none focus:border-primary"
-            />
+            <p className="mt-1 text-[14px] text-faint">Войди корпоративной учетной записью через Keycloak.</p>
           </>
         ) : (
           <>
@@ -198,9 +186,9 @@ function Gate() {
             <p className="mt-1 text-[14px] text-faint [overflow-wrap:anywhere]">{d.error}</p>
           </>
         )}
-        {d.status === "token" && d.error && <p className="mt-2 text-[13px] text-destructive">{d.error}</p>}
+        {d.status === "login" && d.error && <p className="mt-2 text-[13px] text-destructive">{d.error}</p>}
         <button className="mt-4 w-full rounded-lg bg-primary px-4 py-2 text-[14px] font-semibold text-primary-foreground hover:bg-primary-hover">
-          {d.status === "token" ? "Войти" : "Попробовать еще раз"}
+          {d.status === "login" ? "Войти" : "Попробовать еще раз"}
         </button>
       </form>
     </main>

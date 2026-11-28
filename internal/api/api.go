@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,8 +32,10 @@ import (
 type Server struct {
 	Pool   *pgxpool.Pool
 	Engine *run.Engine
-	// Tokens maps a bearer token to the caller name: drivers, CLI users. People log in via OIDC later.
+	// Tokens maps a bearer token to the caller name: drivers, CI, agentctl. People log in through OIDC.
 	Tokens map[string]string
+	// OIDC logs people in; nil means bearer tokens only.
+	OIDC *OIDC
 	// Publishers are the callers allowed to publish packages (CI of the package repositories).
 	Publishers map[string]bool
 	// Formats are the webhook formats of event sources besides the built-in raw.
@@ -44,7 +47,9 @@ type Server struct {
 	// Platform are the callers who see and change every object (the platform team); others see the
 	// objects where they have a role.
 	Platform map[string]bool
-	Log      *slog.Logger
+	// PlatformGroup is the OIDC group of the platform team: its members are Platform too.
+	PlatformGroup string
+	Log           *slog.Logger
 
 	hubOnce sync.Once
 	events  *hub
@@ -68,20 +73,30 @@ func (s *Server) Handler() http.Handler {
 		prefix := "/v1/drivers/" + cb.Name()
 		r.Handle(prefix+"/*", http.StripPrefix(prefix, cb.Handler(s.Engine)))
 	}
+	if s.OIDC != nil {
+		r.Get("/v1/auth/login", s.login)
+		r.Get("/v1/auth/callback", s.callback)
+	}
 	r.Group(func(r chi.Router) {
 		r.Use(s.auth)
-		r.Post("/v1/launches/{source}", s.launch)
-		r.Post("/v1/hooks/{agent}/{connection}/{source}", s.hook)
-		r.Post("/v1/conversations/{agent}/{connection}/{source}", s.converse)
-		r.Post("/v1/agents/{name}/scenarios/{scenario}/call", s.call)
-		r.Get("/v1/runs", s.listRuns)
-		r.Get("/v1/runs/{id}", s.getRun)
+		// systems only: these trust what the caller says (the author of a message, the event) or
+		// run what a pipeline runs; a person in the UI has no business there
+		r.Group(func(r chi.Router) {
+			r.Use(systemOnly)
+			r.Post("/v1/launches/{source}", s.launch)
+			r.Post("/v1/hooks/{agent}/{connection}/{source}", s.hook)
+			r.Post("/v1/conversations/{agent}/{connection}/{source}", s.converse)
+			r.Post("/v1/agents/{name}/scenarios/{scenario}/call", s.call)
+			r.Get("/v1/runs", s.listRuns)
+			r.Get("/v1/runs/{id}", s.getRun)
+			r.Post("/v1/packages", s.publish)
+			r.Post("/v1/eval", s.evalCase)
+			r.Post("/v1/agents/{name}/suspend", s.setSwitch(true))
+			r.Post("/v1/agents/{name}/resume", s.setSwitch(false))
+		})
+		r.Post("/v1/auth/logout", s.logout)
 		r.Get("/v1/agents", s.listAgents)
 		r.Post("/v1/waits/{id}/resolve", s.resolve)
-		r.Post("/v1/packages", s.publish)
-		r.Post("/v1/eval", s.evalCase)
-		r.Post("/v1/agents/{name}/suspend", s.setSwitch(true))
-		r.Post("/v1/agents/{name}/resume", s.setSwitch(false))
 
 		r.Get("/v1/me", s.me)
 		r.Post("/v1/agents/{agent}/objects", s.createObject)
@@ -102,25 +117,66 @@ func (s *Server) Handler() http.Handler {
 
 type ctxKey struct{}
 
-func caller(ctx context.Context) string { v, _ := ctx.Value(ctxKey{}).(string); return v }
+// who is the caller of a request; caller is its name.
+func who(ctx context.Context) Caller { v, _ := ctx.Value(ctxKey{}).(Caller); return v }
 
+func caller(ctx context.Context) string { return who(ctx).Name }
+
+// platform says whether the caller is the platform team: named in Platform or a member of PlatformGroup.
+func (s *Server) platform(ctx context.Context) bool {
+	c := who(ctx)
+	return s.Platform[c.Name] || s.PlatformGroup != "" && slices.Contains(c.Groups, s.PlatformGroup)
+}
+
+// auth lets in a bearer token (a system) or a session cookie (a person). A cookie request that
+// changes something must come from the UI's own origin.
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok {
-			writeErr(w, http.StatusUnauthorized, "bearer token required")
+		with := func(c Caller) { next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, c))) }
+		if tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
+			for t, name := range s.Tokens {
+				if subtle.ConstantTimeCompare([]byte(t), []byte(tok)) == 1 {
+					with(Caller{Name: name, Kind: KindSystem, Groups: []string{}})
+					return
+				}
+			}
+			if s.Log != nil {
+				s.Log.Warn("unknown API token", "path", r.URL.Path, "remote", r.RemoteAddr, "forwarded_for", r.Header.Get("X-Forwarded-For"))
+			}
+			writeErr(w, http.StatusUnauthorized, "unknown token")
 			return
 		}
-		for t, name := range s.Tokens {
-			if subtle.ConstantTimeCompare([]byte(t), []byte(tok)) == 1 {
-				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, name)))
-				return
-			}
+		ck, err := r.Cookie(sessionCookie)
+		if s.OIDC == nil || err != nil || ck.Value == "" {
+			writeErrCode(w, http.StatusUnauthorized, "login_required", "log in or send a bearer token")
+			return
 		}
-		if s.Log != nil {
-			s.Log.Warn("unknown API token", "path", r.URL.Path, "remote", r.RemoteAddr, "forwarded_for", r.Header.Get("X-Forwarded-For"))
+		if unsafeMethod(r.Method) && !s.OIDC.sameSite(r) {
+			writeErrCode(w, http.StatusForbidden, "cross_site", "a request with the session cookie must come from the UI")
+			return
 		}
-		writeErr(w, http.StatusUnauthorized, "unknown token")
+		c, err := s.session(w, r, ck.Value)
+		switch {
+		case errors.Is(err, errNoSession):
+			s.setCookie(w, "", -1)
+			writeErrCode(w, http.StatusUnauthorized, "login_required", "the session has ended, log in again")
+		case err != nil:
+			s.Log.Error("session", "err", err)
+			writeErrCode(w, http.StatusServiceUnavailable, "unavailable", "cannot check the session now")
+		default:
+			with(c)
+		}
+	})
+}
+
+// systemOnly lets in bearer callers only.
+func systemOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if who(r.Context()).Kind != KindSystem {
+			writeErrCode(w, http.StatusForbidden, "forbidden", "this endpoint takes a bearer token")
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 
@@ -251,8 +307,11 @@ func (s *Server) resolve(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "decision must be approve or reject")
 		return
 	}
-	by := caller(r.Context())
-	err := s.Engine.Resolve(r.Context(), waitID, by, req.Fingerprint, req.Decision == "approve")
+	by, resolve := caller(r.Context()), s.Engine.Resolve
+	if who(r.Context()).Kind == KindPerson {
+		resolve = s.Engine.ResolveAsOwner
+	}
+	err := resolve(r.Context(), waitID, by, req.Fingerprint, req.Decision == "approve")
 	switch {
 	case err == nil:
 		writeJSON(w, http.StatusOK, map[string]any{"wait_id": waitID, "decision": req.Decision, "by": by})
@@ -264,6 +323,8 @@ func (s *Server) resolve(w http.ResponseWriter, r *http.Request) {
 		writeErrCode(w, http.StatusConflict, "same_approver", err.Error())
 	case errors.Is(err, run.ErrSuspended):
 		writeErrCode(w, http.StatusConflict, "suspended", err.Error())
+	case errors.Is(err, run.ErrNotApprover):
+		writeErrCode(w, http.StatusForbidden, "forbidden", err.Error())
 	default:
 		s.Log.Error("resolve wait", "wait", waitID, "err", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
@@ -393,12 +454,13 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(`{"agents":` + string(doc) + `}`))
 }
 
-// me says who the caller is: the name of the token now, the person from OIDC later.
+// me says who the caller is.
 //
-//	GET /v1/me → {"person", "platform"}
+//	GET /v1/me → {"person", "kind", "groups", "name", "email", "platform"}
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
-	who := caller(r.Context())
-	writeJSON(w, http.StatusOK, map[string]any{"person": who, "platform": s.Platform[who]})
+	c := who(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{"person": c.Name, "kind": c.Kind, "groups": c.Groups,
+		"name": c.FullName, "email": c.Email, "platform": s.platform(r.Context())})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

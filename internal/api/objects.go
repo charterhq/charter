@@ -53,7 +53,7 @@ func (s *Server) objectErr(w http.ResponseWriter, err error) {
 // the same as for an object that does not exist.
 func (s *Server) visible(w http.ResponseWriter, r *http.Request) (string, bool) {
 	id, who := chi.URLParam(r, "id"), caller(r.Context())
-	if s.Platform[who] {
+	if s.platform(r.Context()) {
 		return id, true
 	}
 	ok, err := s.Engine.HasRole(r.Context(), id, who)
@@ -71,7 +71,7 @@ func (s *Server) visible(w http.ResponseWriter, r *http.Request) (string, bool) 
 // owner says whether the caller may change roles: an owner of the object, or the platform.
 func (s *Server) owner(r *http.Request, v run.ObjectView) bool {
 	who := caller(r.Context())
-	if s.Platform[who] {
+	if s.platform(r.Context()) {
 		return true
 	}
 	for _, m := range v.Members {
@@ -117,7 +117,7 @@ func (s *Server) createObject(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listObjects(w http.ResponseWriter, r *http.Request) {
 	q, who := r.URL.Query(), caller(r.Context())
 	f := run.ObjectFilter{Agent: chi.URLParam(r, "agent"), Connection: q.Get("connection"), Archived: q.Get("archived") == "true"}
-	if !s.Platform[who] || q.Get("mine") == "1" {
+	if !s.platform(r.Context()) || q.Get("mine") == "1" {
 		f.Person = who
 	}
 	f.Limit, _ = strconv.Atoi(q.Get("limit"))
@@ -338,7 +338,7 @@ func (s *Server) say(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "message_id and text are required")
 		return
 	}
-	runID, seq, dup, err := s.Engine.Say(r.Context(), id, chi.URLParam(r, "cid"), req.MessageID, caller(r.Context()), req.Text)
+	runID, seq, dup, err := s.Engine.Say(r.Context(), id, chi.URLParam(r, "cid"), req.MessageID, caller(r.Context()), who(r.Context()).Groups, req.Text)
 	if err != nil {
 		s.objectErr(w, err)
 		return

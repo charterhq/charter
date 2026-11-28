@@ -26,6 +26,7 @@ type env struct {
 	srv  *httptest.Server
 	pool *pgxpool.Pool
 	ch   *stub.Channel
+	s    *api.Server
 }
 
 func setup(t *testing.T, scn run.Scenario, outputs ...string) env {
@@ -48,7 +49,7 @@ func setup(t *testing.T, scn run.Scenario, outputs ...string) env {
 		Formats: drv.Formats, Log: slog.Default()}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(srv.Close)
-	return env{srv: srv, pool: pool, ch: ch}
+	return env{srv: srv, pool: pool, ch: ch, s: s}
 }
 
 func call(t *testing.T, e env, method, path, token string, body any) (int, map[string]any) {

@@ -1,13 +1,13 @@
 import { Command, LogOut, Settings, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { setToken } from "@/lib/api";
+import { logout } from "@/lib/api";
 import { useDraft } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-// The signed-in caller comes from GET /v1/me; team and role come with OIDC.
+// The signed-in person comes from GET /v1/me.
 function useUser() {
-  const login = useDraft().me ?? "";
-  return { login, team: "", role: "" };
+  const d = useDraft();
+  return { login: d.me ?? "", name: d.meName ?? "" };
 }
 const initials = (login: string) =>
   login
@@ -70,10 +70,8 @@ export function UserMenu(props: Prefs & { onPalette: () => void }) {
           <div className="flex items-center gap-3 px-2.5 pb-2.5 pt-1.5">
             <Avatar size="lg" />
             <div className="min-w-0">
-              <div className="truncate text-[14px] font-semibold">{USER.login}</div>
-              <div className="truncate text-[13px] text-faint">
-                {USER.team ? `команда ${USER.team} · ${USER.role}` : "вход по токену API"}
-              </div>
+              <div className="truncate text-[14px] font-semibold">{USER.name || USER.login}</div>
+              {USER.name && <div className="truncate font-mono text-[13px] text-faint">{USER.login}</div>}
             </div>
           </div>
           <div className="mb-1 border-t" />
@@ -105,8 +103,7 @@ export function UserMenu(props: Prefs & { onPalette: () => void }) {
             role="menuitem"
             className={item}
             onClick={() => {
-              setToken("");
-              location.reload();
+              void logout();
             }}
           >
             <LogOut size={15} aria-hidden />
@@ -187,8 +184,8 @@ function SettingsDialog(
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-[14px]">
               <dt className="text-faint">Логин</dt>
               <dd className="font-mono text-[13px]">{USER.login}</dd>
-              <dt className="text-faint">Команда</dt>
-              <dd>{USER.team || "появится со входом через Keycloak"}</dd>
+              <dt className="text-faint">Имя</dt>
+              <dd>{USER.name || "–"}</dd>
             </dl>
           </div>
           <p className="mt-3 text-[13px] text-faint">Профиль приходит из учетной записи, здесь он только для чтения.</p>

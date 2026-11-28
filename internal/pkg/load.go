@@ -339,6 +339,9 @@ func checkConnectionTriggers(file string, c *Connection, scenarios map[string]*S
 		if (len(t.Users) > 0 || len(t.Channels) > 0) && !k["message"] {
 			ps.add(file, "trigger %q: users and channels are only meaningful for message sources", src)
 		}
+		if len(t.Groups) > 0 && (!k["message"] || t.Receiver != run.ReceiverWeb) {
+			ps.add(file, "trigger %q: groups are only meaningful for message sources with receiver %s (people of the UI)", src, run.ReceiverWeb)
+		}
 		if k["message"] && len(byType[src]["message"]) > 1 {
 			ps.add(file, "trigger %q: a message source must start one scenario, it starts %v", src, byType[src]["message"])
 		}

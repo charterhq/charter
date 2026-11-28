@@ -879,7 +879,7 @@ func (e *Engine) Messages(ctx context.Context, objectID, convID string, p Messag
 
 // Say takes a person's message in a conversation about an object and starts the run that answers it.
 // A repeated message_id in the same conversation returns the run of the first one.
-func (e *Engine) Say(ctx context.Context, objectID, convID, messageID, author, text string) (runID string, seq int64, dup bool, err error) {
+func (e *Engine) Say(ctx context.Context, objectID, convID, messageID, author string, groups []string, text string) (runID string, seq int64, dup bool, err error) {
 	o, err := e.loadObject(ctx, e.pool, objectID, false)
 	if err != nil {
 		return "", 0, false, err
@@ -913,7 +913,7 @@ func (e *Engine) Say(ctx context.Context, objectID, convID, messageID, author, t
 		return "", 0, false, fmt.Errorf("%s/%s: %w", o.Agent, o.Connection, ErrNoWebSource)
 	}
 	id, dup, err := e.converse(ctx, driver.Incoming{Agent: o.Agent, Connection: o.Connection, Source: source,
-		Conversation: c.ID, MessageID: messageID, Author: author, Text: text}, Object{Key: o.Key, ID: o.ID.String()})
+		Conversation: c.ID, MessageID: messageID, Author: author, Groups: groups, Text: text}, Object{Key: o.Key, ID: o.ID.String()})
 	if err != nil {
 		return "", 0, false, err
 	}
@@ -983,10 +983,10 @@ func (w *objectCleanupWorker) Work(ctx context.Context, _ *river.Job[objectClean
 
 // Cleanup is what CleanupObjects did.
 type Cleanup struct {
-	Events, Archived, Messages int64
+	Events, Archived, Messages, Sessions int64
 }
 
-// CleanupObjects applies the retention of objects.
+// CleanupObjects applies the retention of objects and drops expired login sessions.
 func (e *Engine) CleanupObjects(ctx context.Context) (Cleanup, error) {
 	var c Cleanup
 	now := e.now()
@@ -1018,6 +1018,13 @@ func (e *Engine) CleanupObjects(ctx context.Context) (Cleanup, error) {
 		return c, err
 	}
 	c.Messages = tag.RowsAffected()
+	if tag, err = e.pool.Exec(ctx, `DELETE FROM sessions WHERE expires_at < $1`, now); err != nil {
+		return c, err
+	}
+	c.Sessions = tag.RowsAffected()
+	if _, err = e.pool.Exec(ctx, `DELETE FROM auth_logins WHERE created_at < $1`, now.Add(-time.Hour)); err != nil {
+		return c, err
+	}
 	return c, nil
 }
 

@@ -1,7 +1,5 @@
-// The core's public API: the UI talks to nothing else. Until people sign in through OIDC, the
-// UI sends an API token the person pastes once; it stays in this browser only.
-
-const TOKEN_KEY = "charter.token";
+// The core's public API: the UI talks to nothing else. People sign in through the core's OIDC
+// login; the session is an HttpOnly cookie the UI never sees.
 
 // The builder is an ordinary agent with memory: object; the installation may name it differently.
 export const BUILDER = {
@@ -12,21 +10,16 @@ export const BUILDER = {
 // The API sits next to the UI: /charter/ui/ → /charter/v1/, /ui/ → /v1/.
 const BASE = new URL("../v1/", new URL(".", location.href)).pathname.replace(/\/$/, "");
 
-export function token(): string {
-  try {
-    return localStorage.getItem(TOKEN_KEY) ?? (import.meta.env.VITE_CHARTER_TOKEN as string | undefined) ?? "";
-  } catch {
-    return (import.meta.env.VITE_CHARTER_TOKEN as string | undefined) ?? "";
-  }
+// login sends the browser to the provider; it comes back to the page it left.
+export function login() {
+  location.href = `${BASE}/auth/login?return_to=${encodeURIComponent(location.pathname + location.search)}`;
 }
 
-export function setToken(t: string) {
-  try {
-    if (t) localStorage.setItem(TOKEN_KEY, t);
-    else localStorage.removeItem(TOKEN_KEY);
-  } catch {
-    // the token works for this visit only
-  }
+// logout ends the session in the core, then at the provider.
+export async function logout() {
+  const out = await api<{ logout_url?: string }>("POST", "/auth/logout", { return_to: location.pathname }).catch(() => ({}) as { logout_url?: string });
+  if (out.logout_url) location.href = out.logout_url;
+  else location.reload();
 }
 
 export class ApiError extends Error {
@@ -41,9 +34,8 @@ export class ApiError extends Error {
 }
 
 function headers(json: boolean): HeadersInit {
+  // with the session cookie the core takes changes only with this header (CSRF)
   const h: Record<string, string> = { "X-Charter-Request": "1" };
-  const t = token();
-  if (t) h.Authorization = `Bearer ${t}`;
   if (json) h["Content-Type"] = "application/json";
   return h;
 }
@@ -121,7 +113,7 @@ export type ObjectSummary = { id: string; title: string; stage: string; missing:
 
 export type ObjectEvent = { seq: number; type: string; data: any };
 
-// Server-sent events over fetch: EventSource cannot send the token. The stream resumes after the
+// Server-sent events over fetch, to send the CSRF header and read statuses. The stream resumes after the
 // last event it saw; "reset" means events were lost and the snapshot must be read again.
 export function subscribe(
   objectID: string,

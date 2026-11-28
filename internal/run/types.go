@@ -7,6 +7,7 @@ package run
 
 import (
 	"encoding/json"
+	"slices"
 	"time"
 
 	"github.com/charterhq/charter/internal/driver"
@@ -189,8 +190,11 @@ type ConnectionTrigger struct {
 	Schedule string `json:"schedule,omitempty"`
 	// Input is the run input of a schedule source.
 	Input json.RawMessage `json:"input,omitempty"`
-	// Users may talk to the agent through a message source; empty means anyone the channel lets in.
+	// Users may talk to the agent through a message source; with Groups empty too, anyone the channel lets in.
 	Users []string `json:"users,omitempty"`
+	// Groups are OIDC groups of people who may talk through a message source with receiver web
+	// (people of the UI); a person passes if named in Users or a member of one of Groups.
+	Groups []string `json:"groups,omitempty"`
 	// Channels limit a message source to places of the channel driver (channel IDs); empty means everywhere.
 	Channels []string `json:"channels,omitempty"`
 }
@@ -254,4 +258,21 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	}
 	*d = Duration(v)
 	return nil
+}
+
+// allows says whether an author may talk through a message source: anyone when the source names no
+// users and no groups, else a named user or a member of a named group.
+func (ct ConnectionTrigger) allows(author string, groups []string) bool {
+	if len(ct.Users) == 0 && len(ct.Groups) == 0 {
+		return true
+	}
+	if slices.Contains(ct.Users, author) {
+		return true
+	}
+	for _, g := range groups {
+		if slices.Contains(ct.Groups, g) {
+			return true
+		}
+	}
+	return false
 }

@@ -86,7 +86,7 @@ func TestObjectConversation(t *testing.T) {
 		t.Fatalf("opener %+v", opener)
 	}
 
-	runID, seq, dup, err := eng.Say(ctx, obj.ID, conv.ID, "m1", "alice", "it should triage alerts, like the disk full one")
+	runID, seq, dup, err := eng.Say(ctx, obj.ID, conv.ID, "m1", "alice", nil, "it should triage alerts, like the disk full one")
 	if err != nil || dup || seq == 0 {
 		t.Fatalf("say: %v dup=%v seq=%d", err, dup, seq)
 	}
@@ -141,7 +141,7 @@ func TestObjectConversation(t *testing.T) {
 	}
 
 	// the same message again in the same conversation is the same run
-	again, _, dup, err := eng.Say(ctx, obj.ID, conv.ID, "m1", "alice", "it should triage alerts, like the disk full one")
+	again, _, dup, err := eng.Say(ctx, obj.ID, conv.ID, "m1", "alice", nil, "it should triage alerts, like the disk full one")
 	if err != nil || !dup || again != runID {
 		t.Fatalf("repeat: %s dup=%v %v", again, dup, err)
 	}
@@ -159,7 +159,7 @@ func TestObjectStateOpsInvalid(t *testing.T) {
 	ctx := context.Background()
 	obj, _ := eng.CreateObject(ctx, "alert-triage", "platform", "a", nil, "alice")
 	conv, _, _ := eng.OpenConversation(ctx, obj.ID, "", "alice")
-	id, _, _, err := eng.Say(ctx, obj.ID, conv.ID, "m1", "alice", "hi")
+	id, _, _, err := eng.Say(ctx, obj.ID, conv.ID, "m1", "alice", nil, "hi")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestObjectPeopleWin(t *testing.T) {
 	obj, _ := eng.CreateObject(ctx, "alert-triage", "platform", "a", nil, "alice")
 	objID = obj.ID
 	conv, _, _ := eng.OpenConversation(ctx, obj.ID, "", "alice")
-	id, _, _, _ := eng.Say(ctx, obj.ID, conv.ID, "m1", "alice", "hi")
+	id, _, _, _ := eng.Say(ctx, obj.ID, conv.ID, "m1", "alice", nil, "hi")
 	if status := waitDone(t, pool, id); status != run.StatusOK {
 		t.Fatalf("status %s", status)
 	}
@@ -316,7 +316,7 @@ func TestObjectWithoutWebSource(t *testing.T) {
 	ctx := context.Background()
 	obj, _ := eng.CreateObject(ctx, "alert-triage", "platform", "a", nil, "alice")
 	conv, _, _ := eng.OpenConversation(ctx, obj.ID, "", "alice")
-	if _, _, _, err := eng.Say(ctx, obj.ID, conv.ID, "m1", "alice", "hi"); !errors.Is(err, run.ErrNoWebSource) {
+	if _, _, _, err := eng.Say(ctx, obj.ID, conv.ID, "m1", "alice", nil, "hi"); !errors.Is(err, run.ErrNoWebSource) {
 		t.Fatalf("say: %v", err)
 	}
 }

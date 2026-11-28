@@ -4,7 +4,6 @@ import {
   BUILDER,
   api,
   subscribe,
-  token,
   type Conversation,
   type Field,
   type FieldSource,
@@ -43,11 +42,13 @@ export type Room = {
 };
 
 export type Draft = {
-  status: "loading" | "ready" | "token" | "error";
+  status: "loading" | "ready" | "login" | "error";
   error?: string;
   // A short notice: an edit that lost to a newer one, a stream that dropped.
   notice?: string;
   me?: string;
+  // the full name the provider gives, if any
+  meName?: string;
   id: string;
   name: string;
   attrs: Record<string, unknown>;
@@ -181,7 +182,7 @@ async function load(id: string) {
 
 function fail(e: unknown) {
   if (e instanceof ApiError && e.status === 401) {
-    draft.set({ status: "token", error: "Токен не подошел" });
+    draft.set({ status: "login", error: draft.get().me ? "Сессия закончилась, войди еще раз" : undefined });
     return;
   }
   draft.set({ status: "error", error: e instanceof Error ? e.message : String(e) });
@@ -189,14 +190,10 @@ function fail(e: unknown) {
 
 // boot opens the newest draft of the person, or starts one.
 export async function boot() {
-  if (!token()) {
-    draft.set({ status: "token" });
-    return;
-  }
   draft.set({ status: "loading", error: undefined });
   try {
-    const me = await api<{ person: string }>("GET", "/me");
-    draft.set({ me: me.person });
+    const me = await api<{ person: string; name?: string }>("GET", "/me");
+    draft.set({ me: me.person, meName: me.name });
     const { objects } = await api<{ objects: ObjectSummary[] }>(
       "GET",
       `/agents/${BUILDER.agent}/objects?connection=${BUILDER.connection}&mine=1&limit=1`,

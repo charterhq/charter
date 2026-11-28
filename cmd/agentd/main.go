@@ -145,7 +145,16 @@ func runMain(log *slog.Logger, args []string) error {
 		}
 		apiSrv := &api.Server{Pool: pool, Engine: eng, Tokens: tokens,
 			Publishers: config.Publishers(), Platform: config.Platform(), Formats: drv.Formats, Callbacks: callbacks,
-			JudgeClass: config.Env("CHARTER_EVAL_JUDGE_CLASS"), Log: log}
+			JudgeClass: config.Env("CHARTER_EVAL_JUDGE_CLASS"), PlatformGroup: config.Env("CHARTER_PLATFORM_GROUP"), Log: log}
+		if issuer := config.Env("CHARTER_OIDC_ISSUER"); issuer != "" {
+			apiSrv.OIDC = &api.OIDC{Issuer: issuer, ClientID: config.Env("CHARTER_OIDC_CLIENT_ID"),
+				ClientSecret: config.Env("CHARTER_OIDC_CLIENT_SECRET"), RedirectURL: config.Env("CHARTER_OIDC_REDIRECT_URL"),
+				CookiePath: config.Env("CHARTER_OIDC_COOKIE_PATH")}
+			if err := apiSrv.OIDC.Validate(); err != nil {
+				return err
+			}
+			log.Info("people log in through OIDC", "issuer", issuer, "redirect", apiSrv.OIDC.RedirectURL)
+		}
 		srv := &http.Server{
 			Addr:              listen,
 			Handler:           apiSrv.Handler(),

@@ -1,0 +1,80 @@
+{
+  "realm": "charter",
+  "enabled": true,
+  "sslRequired": "none",
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 28800,
+  "groups": [
+    {"name": "charter-platform"},
+    {"name": "agent-builders"}
+  ],
+  "clients": [
+    {
+      "clientId": "charter",
+      "name": "Charter (local development)",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "charter-dev-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://localhost:5173/v1/auth/callback",
+        "http://localhost:5179/v1/auth/callback",
+        "http://localhost:8089/v1/auth/callback",
+        "http://localhost:8080/v1/auth/callback"
+      ],
+      "webOrigins": ["+"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*##http://localhost:5179/*##http://localhost:8089/*##http://localhost:8080/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "jane.doe",
+      "firstName": "Jane",
+      "lastName": "Doe",
+      "email": "jane.doe@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "credentials": [{"type": "password", "value": "jane.doe", "temporary": false}],
+      "groups": ["agent-builders"]
+    },
+    {
+      "username": "john.roe",
+      "firstName": "John",
+      "lastName": "Roe",
+      "email": "john.roe@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "credentials": [{"type": "password", "value": "john.roe", "temporary": false}],
+      "groups": []
+    },
+    {
+      "username": "pat.lee",
+      "firstName": "Pat",
+      "lastName": "Lee",
+      "email": "pat.lee@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "credentials": [{"type": "password", "value": "pat.lee", "temporary": false}],
+      "groups": ["charter-platform", "agent-builders"]
+    }
+  ]
+}
