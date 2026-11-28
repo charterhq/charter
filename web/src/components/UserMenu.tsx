@@ -1,5 +1,6 @@
 import { Command, LogOut, Settings, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { LANGS, setLang, useLang, useT, type Lang } from "@/i18n";
 import { logout } from "@/lib/api";
 import { useDraft } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ export type Prefs = {
 };
 
 export function UserMenu(props: Prefs & { onPalette: () => void }) {
+  const t = useT();
   const USER = useUser();
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState(false);
@@ -57,7 +59,7 @@ export function UserMenu(props: Prefs & { onPalette: () => void }) {
         onClick={() => setOpen(!open)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`Пользователь ${USER.login}`}
+        aria-label={t.user.menu(USER.login)}
         className="grid size-8 place-items-center rounded-full"
       >
         <Avatar />
@@ -85,7 +87,7 @@ export function UserMenu(props: Prefs & { onPalette: () => void }) {
             }}
           >
             <Settings size={15} aria-hidden />
-            Настройки профиля
+            {t.user.profileSettings}
           </button>
           <button
             role="menuitem"
@@ -96,7 +98,7 @@ export function UserMenu(props: Prefs & { onPalette: () => void }) {
             }}
           >
             <Command size={15} aria-hidden />
-            Команды
+            {t.user.commands}
             <kbd className="ml-auto font-mono text-[12px] text-faint">{isMac ? "⌘K" : "Ctrl K"}</kbd>
           </button>
           <button
@@ -107,7 +109,7 @@ export function UserMenu(props: Prefs & { onPalette: () => void }) {
             }}
           >
             <LogOut size={15} aria-hidden />
-            Выйти
+            {t.user.signOut}
           </button>
         </div>
       )}
@@ -137,6 +139,8 @@ function Avatar({ size = "md" }: { size?: "md" | "lg" }) {
 function SettingsDialog(
   props: Prefs & { open: boolean; onClose: () => void; returnFocus: React.RefObject<HTMLButtonElement | null> },
 ) {
+  const t = useT();
+  const lang = useLang();
   const USER = useUser();
   const ref = useRef<HTMLDialogElement>(null);
   const { open, onClose, returnFocus } = props;
@@ -165,11 +169,11 @@ function SettingsDialog(
     >
       <div className="flex items-center gap-3 border-b px-5 py-4">
         <h2 id="settings-title" className="text-[16px] font-semibold tracking-tight">
-          Настройки профиля
+          {t.user.profileSettings}
         </h2>
         <button
           onClick={onClose}
-          aria-label="Закрыть"
+          aria-label={t.user.close}
           className="ml-auto grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-surface hover:text-foreground"
         >
           <X size={16} />
@@ -178,50 +182,68 @@ function SettingsDialog(
 
       <div className="space-y-6 px-5 py-5">
         <section>
-          <h3 className="mb-3 text-[12px] font-semibold uppercase tracking-wider text-faint">Профиль</h3>
+          <h3 className="mb-3 text-[12px] font-semibold uppercase tracking-wider text-faint">{t.user.profile}</h3>
           <div className="flex items-center gap-3">
             <Avatar size="lg" />
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-[14px]">
-              <dt className="text-faint">Логин</dt>
+              <dt className="text-faint">{t.user.login}</dt>
               <dd className="font-mono text-[13px]">{USER.login}</dd>
-              <dt className="text-faint">Имя</dt>
+              <dt className="text-faint">{t.user.name}</dt>
               <dd>{USER.name || "–"}</dd>
             </dl>
           </div>
-          <p className="mt-3 text-[13px] text-faint">Профиль приходит из учетной записи, здесь он только для чтения.</p>
+          <p className="mt-3 text-[13px] text-faint">{t.user.profileHint}</p>
         </section>
 
         <section>
-          <h3 className="mb-3 text-[12px] font-semibold uppercase tracking-wider text-faint">Внешний вид</h3>
-          <Row label="Тема">
-            <div role="radiogroup" aria-label="Тема" className="flex gap-1 rounded-lg border bg-surface p-1">
-              {(
-                [
-                  [false, "Светлая"],
-                  [true, "Темная"],
-                ] as const
-              ).map(([dark, label]) => (
-                <button
-                  key={label}
-                  role="radio"
-                  aria-checked={props.dark === dark}
-                  onClick={() => props.onDark(dark)}
-                  className={cn(
-                    "rounded-md px-3 py-1 text-[13px] font-medium text-muted-foreground",
-                    props.dark === dark && "bg-card text-foreground shadow-[inset_0_0_0_1px_var(--border)]",
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+          <h3 className="mb-3 text-[12px] font-semibold uppercase tracking-wider text-faint">{t.user.appearance}</h3>
+          <Row label={t.user.language}>
+            <Choice
+              label={t.user.language}
+              value={lang}
+              onChange={(l) => setLang(l as Lang)}
+              options={Object.entries(LANGS).map(([id, l]) => [id, l.name])}
+            />
           </Row>
-          <Row label="Меньше анимации" hint="Убирает движение: переезды, покачивание, подсветку полей">
-            <Switch checked={props.reduceMotion} onChange={props.onReduceMotion} label="Меньше анимации" />
+          <Row label={t.user.theme}>
+            <Choice
+              label={t.user.theme}
+              value={props.dark ? "dark" : "light"}
+              onChange={(v) => props.onDark(v === "dark")}
+              options={[
+                ["light", t.user.light],
+                ["dark", t.user.dark],
+              ]}
+            />
+          </Row>
+          <Row label={t.user.reduceMotion} hint={t.user.reduceMotionHint}>
+            <Switch checked={props.reduceMotion} onChange={props.onReduceMotion} label={t.user.reduceMotion} />
           </Row>
         </section>
       </div>
     </dialog>
+  );
+}
+
+// A choice of a few values shown at once: the theme, the language.
+function Choice({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: [string, string][] }) {
+  return (
+    <div role="radiogroup" aria-label={label} className="flex gap-1 rounded-lg border bg-surface p-1">
+      {options.map(([id, text]) => (
+        <button
+          key={id}
+          role="radio"
+          aria-checked={value === id}
+          onClick={() => onChange(id)}
+          className={cn(
+            "rounded-md px-3 py-1 text-[13px] font-medium text-muted-foreground",
+            value === id && "bg-card text-foreground shadow-[inset_0_0_0_1px_var(--border)]",
+          )}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
   );
 }
 

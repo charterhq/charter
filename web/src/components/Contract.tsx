@@ -1,10 +1,11 @@
 import { FileCode2 } from "lucide-react";
+import { t as messages, useT } from "@/i18n";
 import { focusField, label, type BriefField, type Draft } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 // A preview of the package the brief turns into, in the v1 format (schemas/*.schema.json).
 // Lines that come from the brief name their field: they light up when filled and lead to the card.
-// The rest of the required fields are decided on the "Описание" stage, so the preview says so
+// The rest of the required fields are decided on the "Description" stage, so the preview says so
 // instead of inventing values.
 
 type Line = { text: string; field?: BriefField; pending?: boolean; note?: boolean; label?: string };
@@ -15,8 +16,9 @@ const SCENARIO = "main";
 // and what it does by itself and never. A builder package with other names shows these as pending.
 const F = { work: "work", trigger: "trigger", limits: "limits" };
 
-// The "Пакет агента" artifact. Before the request is confirmed it opens as a read-only draft.
+// The "Agent package" artifact. Before the request is confirmed it opens as a read-only draft.
 export function Contract({ d, draftOnly }: { d: Draft; draftOnly: boolean }) {
+  const t = useT();
   const files: { path: string; lines: Line[] }[] = [
     { path: "agent.yml", lines: agentLines(d) },
     { path: `scenarios/${SCENARIO}/scenario.yml`, lines: scenarioLines(d) },
@@ -26,18 +28,16 @@ export function Contract({ d, draftOnly }: { d: Draft; draftOnly: boolean }) {
     <article aria-labelledby="package-title" className="mx-auto max-w-2xl">
       <div className="flex items-center gap-2">
         <h2 id="package-title" className="text-lg font-semibold tracking-tight">
-          Пакет агента
+          {t.contract.title}
         </h2>
         {draftOnly && (
           <span className="rounded-full border border-dashed border-border-strong px-2 py-px text-[12px] text-muted-foreground">
-            черновик
+            {t.contract.draft}
           </span>
         )}
       </div>
       <p className="mb-6 mt-1 text-[14px] text-faint">
-        {draftOnly
-          ? "Соберется после заявки. Сейчас показано то, что уже есть в брифе: строка из брифа ведет к своему полю."
-          : "Пакет в формате v1: его проверяет agentctl validate и загружает ядро."}
+        {draftOnly ? t.contract.draftIntro : t.contract.intro}
       </p>
       <div className="space-y-3">
         {files.map((f) => (
@@ -59,6 +59,7 @@ export function Contract({ d, draftOnly }: { d: Draft; draftOnly: boolean }) {
 }
 
 function YamlLine({ line }: { line: Line }) {
+  const t = useT();
   // Wrapped lines hang under their own key or list item, like an editor with soft wrap.
   const hang = (line.text.match(/^ */)?.[0].length ?? 0) + (/^ *- /.test(line.text) ? 2 : 0);
   const style = { paddingLeft: `calc(1rem + ${hang}ch)`, textIndent: `-${hang}ch` };
@@ -78,7 +79,7 @@ function YamlLine({ line }: { line: Line }) {
       type="button"
       onClick={() => focusField(line.field!)}
       style={{ ...style, paddingLeft: `calc(1rem - 2px + ${hang}ch)` }}
-      title={`К полю "${line.label}"`}
+      title={t.contract.toField(line.label ?? "")}
       className={cn(
         "group block w-full border-l-2 pr-4 text-left hover:bg-card",
         line.pending ? "border-transparent" : "border-success/70",
@@ -91,13 +92,15 @@ function YamlLine({ line }: { line: Line }) {
 
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
+// Lines are built outside React; Contract redraws on a language switch, so they follow it.
 function agentLines(d: Draft): Line[] {
+  const c = messages().contract;
   const work = text(d.brief[F.work]);
   const limits = (d.brief[F.limits] ?? {}) as Record<string, unknown>;
   const does = sentences(text(limits.self));
   const never = sentences(text(limits.never));
-  const team = text(d.attrs.team) || "<команда>";
-  const owner = d.members.find((m) => m.role === "owner")?.person ?? "<владелец>";
+  const team = text(d.attrs.team) || c.team;
+  const owner = d.members.find((m) => m.role === "owner")?.person ?? c.owner;
   return [
     { text: "apiVersion: charter.dev/v1" },
     { text: "kind: Agent" },
@@ -109,22 +112,23 @@ function agentLines(d: Draft): Line[] {
     { text: "  status: draft" },
     { text: "spec:" },
     { text: "  goals:" },
-    work ? { text: `    - ${q(work)}`, field: F.work } : { text: "    # ← какую работу делает", field: F.work, pending: true },
+    work ? { text: `    - ${q(work)}`, field: F.work } : { text: `    ${c.goals}`, field: F.work, pending: true },
     { text: "  duties:" },
     ...(does.length
       ? does.map((s): Line => ({ text: `    - ${q(s)}`, field: F.limits }))
-      : [{ text: "    # ← что делает сам", field: F.limits, pending: true }]),
+      : [{ text: `    ${c.duties}`, field: F.limits, pending: true }]),
     { text: "  not_duties:" },
     ...(never.length
       ? never.map((s): Line => ({ text: `    - ${q(s)}`, field: F.limits }))
-      : [{ text: "    # ← чего не делает никогда", field: F.limits, pending: true }]),
+      : [{ text: `    ${c.notDuties}`, field: F.limits, pending: true }]),
     { text: "  scenarios:" },
     { text: `    - name: ${SCENARIO}` },
-    { text: "  # description, persona, model, data_classes, budgets, memory, fallback – на этапе \"Описание\"", note: true },
+    { text: `  ${c.agentLater(messages().stages.description)}`, note: true },
   ];
 }
 
 function scenarioLines(d: Draft): Line[] {
+  const c = messages().contract;
   const trigger = text(d.brief[F.trigger]);
   return [
     { text: "apiVersion: charter.dev/v1" },
@@ -135,12 +139,13 @@ function scenarioLines(d: Draft): Line[] {
     { text: "  triggers:" },
     trigger
       ? { text: `    - ${guessTrigger(trigger)}  # "${clip(trigger, 48)}"`, field: F.trigger }
-      : { text: "    # ← когда берется за работу", field: F.trigger, pending: true },
-    { text: "  # схемы входа и выхода, инструкции, autonomy, eval – на этапе \"Описание\"", note: true },
+      : { text: `    ${c.trigger}`, field: F.trigger, pending: true },
+    { text: `  ${c.scenarioLater(messages().stages.description)}`, note: true },
   ];
 }
 
 // The builder lays the brief into the package; the preview only splits a field into sentences.
+// The trigger guess reads both languages: the brief is in whatever language people write.
 function sentences(t: string) {
   return t
     .split(/(?<=[.!?;])\s+|\n+/)
@@ -149,10 +154,10 @@ function sentences(t: string) {
 }
 
 function guessTrigger(text: string) {
-  if (/расписан|кажд(ый|ое|ую) (день|час|утро|недел)|по утрам|ежеднев|cron/i.test(text)) return "{type: schedule, source: daily}";
-  if (/пишут|сообщени|в чате|спрашива|упомина/i.test(text)) return "{type: message, source: chat}";
-  if (/по запросу|вызыва|api/i.test(text)) return "{type: call, source: api}";
-  return `{type: event, source: ${/алерт/i.test(text) ? "alerts" : "events"}}`;
+  if (/расписан|кажд(ый|ое|ую) (день|час|утро|недел)|по утрам|ежеднев|cron|schedule|every (day|hour|morning|week)|daily|hourly/i.test(text)) return "{type: schedule, source: daily}";
+  if (/пишут|сообщени|в чате|спрашива|упомина|message|in (the )?chat|asks?\b|mention/i.test(text)) return "{type: message, source: chat}";
+  if (/по запросу|вызыва|api|on request|\bcalls?\b/i.test(text)) return "{type: call, source: api}";
+  return `{type: event, source: ${/алерт|alert/i.test(text) ? "alerts" : "events"}}`;
 }
 
 function slug(name: string) {

@@ -4,6 +4,7 @@ import { Chat } from "./components/Chat";
 import { CommandPalette, type Action } from "./components/CommandPalette";
 import { TopBar, type View } from "./components/TopBar";
 import { Boat } from "./components/Mascot";
+import { useT } from "./i18n";
 import { ApiError, authConfig, login, tokenLogin, type AuthConfig } from "./lib/api";
 import { boot, counted, draft, newAgent, useDraft } from "./lib/store";
 import { cn } from "./lib/utils";
@@ -19,12 +20,6 @@ function readMotion(): boolean {
   }
 }
 
-const PLACEHOLDER: Record<Exclude<View, "builder">, string> = {
-  agents: "Каталог агентов появится, когда ядро отдаст его API",
-  journal: "Журнал прогонов – следующий шаг",
-  settings: "Настройки платформы появятся, когда ядро отдаст их API",
-};
-
 function readTheme(): boolean {
   try {
     return localStorage.getItem(THEME_KEY) !== "light";
@@ -34,6 +29,7 @@ function readTheme(): boolean {
 }
 
 export default function App() {
+  const t = useT();
   const [view, setView] = useState<View>("builder");
   const [palette, setPalette] = useState(false);
   const [dark, setDark] = useState(readTheme);
@@ -63,7 +59,7 @@ export default function App() {
     return () => cancelAnimationFrame(frame);
   }, [dark]);
 
-  // "Меньше анимации" in the profile settings: the same rules as prefers-reduced-motion.
+  // "Reduce motion" in the profile settings: the same rules as prefers-reduced-motion.
   useEffect(() => {
     document.documentElement.classList.toggle("reduce-motion", reduceMotion);
     try {
@@ -74,19 +70,19 @@ export default function App() {
   }, [reduceMotion]);
 
   const actions: Action[] = [
-    { id: "builder", label: "Создать агента", hint: "билдер", run: () => setView("builder") },
+    { id: "builder", label: t.palette.builder, hint: t.palette.builderHint, run: () => setView("builder") },
     {
       id: "new",
-      label: "Новый черновик агента",
+      label: t.palette.newDraft,
       run: () => {
         setView("builder");
         void newAgent();
       },
     },
-    { id: "agents", label: "Все агенты", run: () => setView("agents") },
-    { id: "journal", label: "Журнал прогонов", run: () => setView("journal") },
-    { id: "settings", label: "Настройки платформы", run: () => setView("settings") },
-    { id: "theme", label: dark ? "Светлая тема" : "Темная тема", run: () => setDark(!dark) },
+    { id: "agents", label: t.palette.agents, run: () => setView("agents") },
+    { id: "journal", label: t.palette.journal, run: () => setView("journal") },
+    { id: "settings", label: t.palette.settings, run: () => setView("settings") },
+    { id: "theme", label: dark ? t.palette.light : t.palette.dark, run: () => setDark(!dark) },
   ];
 
   return (
@@ -106,11 +102,11 @@ export default function App() {
           <Gate />
         ) : view === "builder" ? (
           <main className="flex min-h-0 flex-1 flex-col gap-3 p-3 lg:grid lg:grid-cols-[minmax(300px,1fr)_minmax(0,2fr)] lg:gap-4 lg:p-4">
-            <div role="tablist" aria-label="Билдер" className="grid shrink-0 grid-cols-2 gap-1 rounded-lg border bg-surface p-1 lg:hidden">
+            <div role="tablist" aria-label={t.app.tabs} className="grid shrink-0 grid-cols-2 gap-1 rounded-lg border bg-surface p-1 lg:hidden">
               {(
                 [
-                  ["chat", "Беседа"],
-                  ["agent", `Агент · ${filled}/${total}`],
+                  ["chat", t.app.chatTab],
+                  ["agent", t.app.agentTab(filled, total)],
                 ] as const
               ).map(([id, label]) => (
                 <button
@@ -136,7 +132,7 @@ export default function App() {
           </main>
         ) : (
           <main className="grid flex-1 place-items-center p-4 text-center text-[15px] text-faint">
-            {PLACEHOLDER[view]}
+            {t.placeholder[view]}
           </main>
         )}
       </div>
@@ -145,7 +141,7 @@ export default function App() {
         <div role="status" className="fixed bottom-4 left-1/2 z-30 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg border bg-popover px-3 py-2 text-[14px] shadow-floating">
           <span className="min-w-0">{d.notice}</span>
           <button onClick={() => draft.set({ notice: undefined })} className="shrink-0 text-[13px] text-muted-foreground hover:text-foreground">
-            Понятно
+            {t.app.gotIt}
           </button>
         </div>
       )}
@@ -155,13 +151,14 @@ export default function App() {
 
 // Gate is the screen before the draft: loading, the login, or a core that did not answer.
 function Gate() {
+  const t = useT();
   const d = useDraft();
   if (d.status === "loading")
     return (
       <main className="grid flex-1 place-items-center p-4 text-[15px] text-faint">
         <div className="flex flex-col items-center gap-3">
           <Boat size={40} bob />
-          Загружаю черновик…
+          {t.app.loading}
         </div>
       </main>
     );
@@ -176,10 +173,10 @@ function Gate() {
         }}
       >
         <Boat size={36} />
-        <h1 className="mt-3 text-lg font-semibold">Ядро не ответило</h1>
+        <h1 className="mt-3 text-lg font-semibold">{t.app.coreDown}</h1>
         <p className="mt-1 text-[14px] text-faint [overflow-wrap:anywhere]">{d.error}</p>
         <button className="mt-4 w-full rounded-lg bg-primary px-4 py-2 text-[14px] font-semibold text-primary-foreground hover:bg-primary-hover">
-          Попробовать еще раз
+          {t.app.retry}
         </button>
       </form>
     </main>
@@ -189,6 +186,7 @@ function Gate() {
 // Login offers the provider when the core has one, and the platform's token while it has none (or as
 // a way in for the platform when the provider is down). The token goes to the core once and is not kept.
 function Login({ error }: { error?: string }) {
+  const t = useT();
   const [cfg, setCfg] = useState<AuthConfig>();
   const [token, setToken] = useState("");
   const [tokenOpen, setTokenOpen] = useState(false);
@@ -203,24 +201,24 @@ function Login({ error }: { error?: string }) {
     <main className="grid flex-1 place-items-center p-4">
       <div className="w-full max-w-sm rounded-xl border bg-card p-5 shadow-panel">
         <Boat size={36} />
-        <h1 className="mt-3 text-lg font-semibold">Вход</h1>
-        {cfg && !cfg.oidc && !cfg.token && <p className="mt-1 text-[14px] text-faint">Вход в интерфейс на этой установке выключен.</p>}
+        <h1 className="mt-3 text-lg font-semibold">{t.login.title}</h1>
+        {cfg && !cfg.oidc && !cfg.token && <p className="mt-1 text-[14px] text-faint">{t.login.off}</p>}
         {error && <p className="mt-2 text-[13px] text-destructive">{error}</p>}
         {cfg?.oidc && (
           <>
-            <p className="mt-1 text-[14px] text-faint">Войди корпоративной учетной записью через единый вход.</p>
+            <p className="mt-1 text-[14px] text-faint">{t.login.sso}</p>
             <button
               autoFocus
               onClick={login}
               className="mt-4 w-full rounded-lg bg-primary px-4 py-2 text-[14px] font-semibold text-primary-foreground hover:bg-primary-hover"
             >
-              Войти
+              {t.login.signIn}
             </button>
           </>
         )}
         {cfg?.oidc && cfg.token && !tokenOpen && (
           <button onClick={() => setTokenOpen(true)} className="mt-3 w-full text-[13px] text-muted-foreground hover:text-foreground">
-            Войти токеном платформы
+            {t.login.withToken}
           </button>
         )}
         {showToken && (
@@ -234,17 +232,17 @@ function Login({ error }: { error?: string }) {
                   setToken("");
                   return boot();
                 })
-                .catch((err) => setFailed(err instanceof ApiError && err.status === 403 ? "Это не токен платформы" : "Токен не подошел"));
+                .catch((err) => setFailed(err instanceof ApiError && err.status === 403 ? t.login.notPlatform : t.login.badToken));
             }}
           >
-            <p className="text-[14px] text-faint">Токен API платформы. Он уходит в ядро один раз и в браузере не хранится.</p>
+            <p className="text-[14px] text-faint">{t.login.tokenHint}</p>
             <input
               autoFocus
               type="password"
               value={token}
               onChange={(e) => setToken(e.target.value)}
-              aria-label="Токен платформы"
-              placeholder="Токен"
+              aria-label={t.login.tokenLabel}
+              placeholder={t.login.tokenPlaceholder}
               className="mt-3 w-full rounded-lg border bg-surface px-3 py-2 text-[15px] outline-none focus:border-primary"
             />
             {failed && <p className="mt-2 text-[13px] text-destructive">{failed}</p>}
@@ -252,7 +250,7 @@ function Login({ error }: { error?: string }) {
               disabled={!token.trim()}
               className="mt-3 w-full rounded-lg border px-4 py-2 text-[14px] font-semibold hover:bg-surface disabled:opacity-50"
             >
-              Войти токеном
+              {t.login.tokenSubmit}
             </button>
           </form>
         )}

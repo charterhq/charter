@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru" class="dark">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -9,6 +9,9 @@
       // The saved theme applies before the first paint, so a light-theme user sees no dark flash.
       try {
         if (localStorage.getItem("charter.theme") === "light") document.documentElement.classList.remove("dark");
+        // The interface language is English unless the person chose another one in the profile.
+        const lang = localStorage.getItem("charter.lang");
+        if (lang) document.documentElement.lang = lang;
       } catch {}
     </script>
   </head>

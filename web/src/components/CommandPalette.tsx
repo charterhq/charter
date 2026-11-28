@@ -1,10 +1,12 @@
 import { Command } from "cmdk";
 import { useEffect } from "react";
+import { useT } from "@/i18n";
 
 export type Action = { id: string; label: string; hint?: string; run: () => void };
 
 // Every action is one search away: the "three clicks" rule.
 export function CommandPalette(props: { open: boolean; onOpenChange: (o: boolean) => void; actions: Action[] }) {
+  const t = useT();
   const { open, onOpenChange } = props;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -21,16 +23,16 @@ export function CommandPalette(props: { open: boolean; onOpenChange: (o: boolean
     <Command.Dialog
       open={open}
       onOpenChange={onOpenChange}
-      label="Команды"
+      label={t.palette.label}
       overlayClassName="fixed inset-0 bg-black/40 backdrop-blur-[2px]"
       contentClassName="fixed left-1/2 top-[18%] w-[min(560px,92vw)] -translate-x-1/2 overflow-hidden rounded-xl border bg-popover shadow-floating"
     >
       <Command.Input
-        placeholder="Что сделать?"
+        placeholder={t.palette.placeholder}
         className="w-full border-b bg-transparent px-4 py-3 text-[15px] outline-none placeholder:text-faint"
       />
       <Command.List className="max-h-72 overflow-y-auto p-1.5">
-        <Command.Empty className="px-3 py-6 text-center text-[15px] text-faint">Ничего не нашлось</Command.Empty>
+        <Command.Empty className="px-3 py-6 text-center text-[15px] text-faint">{t.palette.empty}</Command.Empty>
         {props.actions.map((a) => (
           <Command.Item
             key={a.id}

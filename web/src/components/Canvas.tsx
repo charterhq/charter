@@ -2,6 +2,7 @@ import { ArrowRight, Check, CircleDashed, FileCode2, Lock, MessageSquare, Pencil
 import { useEffect, useRef, useState } from "react";
 import { Contract } from "./Contract";
 import { Boat } from "./Mascot";
+import { formatTime, useT } from "@/i18n";
 import type { Field, Stage } from "@/lib/api";
 import { counted, draft, editField, label, partTitles, question, rename, showRoom, useDraft, type Draft } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,7 @@ const packageAt = (stages: Stage[]): Open => {
 // The canvas shows one thing at a time: the artifact of the chosen stage.
 // Stages with their artifacts run down the left, the next action sits at the bottom.
 export function Canvas() {
+  const t = useT();
   const d = useDraft();
   const [open, setOpen] = useState<Open>({ stage: 0, artifact: 0 });
   // Another artifact opens from its top; a focus request keeps its own scroll to the card.
@@ -53,7 +55,7 @@ export function Canvas() {
         <div className="min-w-0">
           <Title name={d.name} />
           <p className="truncate text-[13px] text-faint">
-            {[team && `команда ${team}`, owners.length && `владелец ${owners.join(", ")}`, "эпик появится после заявки"].filter(Boolean).join(" · ")}
+            {[team && t.canvas.team(team), owners.length && t.canvas.owner(owners.join(", ")), t.canvas.epicLater].filter(Boolean).join(" · ")}
           </p>
         </div>
         <span className="ml-auto hidden shrink-0 rounded-full bg-surface sm:inline px-2.5 py-0.5 text-[12px] font-medium text-muted-foreground">
@@ -87,19 +89,19 @@ export function Canvas() {
         <Progress value={filled} total={total} />
         <div className="min-w-0 flex-1 basis-48 text-[13px]">
           {d.missing.length === 0 ? (
-            <span className="text-muted-foreground">Заявка собрана. После подтверждения – эпик и базовые задачи в Jira.</span>
+            <span className="text-muted-foreground">{t.canvas.ready}</span>
           ) : (
             <span className="text-faint">
-              Не хватает: <span className="text-muted-foreground">{d.missing.map((f) => label(d, f).toLowerCase()).join(", ")}</span>
+              {t.canvas.missing} <span className="text-muted-foreground">{d.missing.map((f) => label(d, f).toLowerCase()).join(", ")}</span>
             </span>
           )}
         </div>
         <button
           disabled
-          title="Подтверждение заявки появится, когда ядро научится переходам стадий"
+          title={t.canvas.confirmHint}
           className="w-full shrink-0 rounded-lg bg-primary px-4 py-2 sm:w-auto text-[14px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:bg-surface disabled:text-muted-foreground disabled:shadow-[inset_0_0_0_1px_var(--border-strong)]"
         >
-          Подтвердить заявку
+          {t.canvas.confirm}
         </button>
       </footer>
     </section>
@@ -108,6 +110,7 @@ export function Canvas() {
 
 // The name of the draft: click to rename.
 function Title({ name }: { name: string }) {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(name);
   if (editing)
@@ -115,7 +118,7 @@ function Title({ name }: { name: string }) {
       <input
         autoFocus
         value={text}
-        aria-label="Имя агента"
+        aria-label={t.canvas.agentName}
         onChange={(e) => setText(e.target.value)}
         onBlur={() => {
           setEditing(false);
@@ -139,7 +142,7 @@ function Title({ name }: { name: string }) {
           setText(name);
           setEditing(true);
         }}
-        title="Переименовать"
+        title={t.canvas.rename}
         className="max-w-full truncate rounded-md text-left hover:bg-surface"
       >
         {name}
@@ -149,6 +152,7 @@ function Title({ name }: { name: string }) {
 }
 
 function StageRail({ d, open, onOpen }: { d: Draft; open: Open; onOpen: (o: Open) => void }) {
+  const t = useT();
   return (
     <nav className="hidden min-h-0 overflow-y-auto border-r px-3 py-5 md:block">
       <ol className="relative">
@@ -187,10 +191,10 @@ function StageRail({ d, open, onOpen }: { d: Draft; open: Open; onOpen: (o: Open
                         )}
                       >
                         {locked && !draftOnly && <Lock size={11} className="shrink-0 opacity-60" />}
-                        <span className="truncate" title={draftOnly ? `${a.title} – черновик до заявки` : a.title}>
+                        <span className="truncate" title={draftOnly ? t.canvas.draftUntilRequest(a.title) : a.title}>
                           {a.title}
                         </span>
-                        {draftOnly && <CircleDashed size={11} className="ml-auto shrink-0 text-faint" aria-label="черновик" />}
+                        {draftOnly && <CircleDashed size={11} className="ml-auto shrink-0 text-faint" aria-label={t.canvas.draft} />}
                       </button>
                     </li>
                   );
@@ -206,8 +210,9 @@ function StageRail({ d, open, onOpen }: { d: Draft; open: Open; onOpen: (o: Open
 
 // Below md the rail turns into one scrolling row of artifacts, numbered by stage.
 function StageStrip({ d, open, onOpen }: { d: Draft; open: Open; onOpen: (o: Open) => void }) {
+  const t = useT();
   return (
-    <nav aria-label="Этапы" className="flex shrink-0 gap-1.5 overflow-x-auto border-b px-3 py-2 md:hidden">
+    <nav aria-label={t.canvas.stages} className="flex shrink-0 gap-1.5 overflow-x-auto border-b px-3 py-2 md:hidden">
       {d.stages.flatMap((s, i) =>
         (s.artifacts ?? []).map((a, j) => {
           const o = { stage: i, artifact: j };
@@ -246,19 +251,21 @@ function StageStrip({ d, open, onOpen }: { d: Draft; open: Open; onOpen: (o: Ope
 }
 
 function DraftMark() {
+  const t = useT();
   return (
     <span className="ml-auto shrink-0 rounded-full border border-dashed border-border-strong px-1.5 text-[11px] leading-4 text-faint">
-      черновик
+      {t.canvas.draft}
     </span>
   );
 }
 
 function Brief({ d, onPackage }: { d: Draft; onPackage: () => void }) {
+  const t = useT();
   return (
     <article className="mx-auto max-w-2xl">
-      <h2 className="text-lg font-semibold tracking-tight">Бриф</h2>
+      <h2 className="text-lg font-semibold tracking-tight">{t.canvas.brief}</h2>
       <p className="mb-6 mt-1 text-[14px] text-faint">
-        Что агент должен делать – своими словами. Билдер заполняет поля по твоим ответам в чате, поправить можно и тут.
+        {t.canvas.briefIntro}
       </p>
       <div className="space-y-2.5">
         {d.fields
@@ -273,7 +280,7 @@ function Brief({ d, onPackage }: { d: Draft; onPackage: () => void }) {
         className="mt-6 flex items-center gap-1.5 rounded-md text-[14px] text-muted-foreground hover:text-foreground"
       >
         <FileCode2 size={14} aria-hidden />
-        Черновик пакета
+        {t.canvas.packageDraft}
         <ArrowRight size={14} aria-hidden />
       </button>
     </article>
@@ -311,6 +318,7 @@ function Value({ d, field, value }: { d: Draft; field: Field; value: unknown }) 
 }
 
 function BriefCard({ field: f, d }: { field: Field; d: Draft }) {
+  const t = useT();
   const value = d.brief[f.name];
   const filled = !isEmpty(value);
   // A collection or a field with parts has a source per item; the card shows the latest.
@@ -367,7 +375,7 @@ function BriefCard({ field: f, d }: { field: Field; d: Draft }) {
           <button
             type="button"
             onClick={start}
-            aria-label={filled ? `Поправить "${name}"` : `Заполнить "${name}" вручную`}
+            aria-label={filled ? t.canvas.edit(name) : t.canvas.fillIn(name)}
             className="ml-auto grid size-7 place-items-center rounded-md text-faint hover:bg-surface hover:text-foreground focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
           >
             <Pencil size={13} />
@@ -395,14 +403,14 @@ function BriefCard({ field: f, d }: { field: Field; d: Draft }) {
               onClick={save}
               className="rounded-md bg-primary px-3 py-1 text-[13px] font-semibold text-primary-foreground hover:bg-primary-hover"
             >
-              Сохранить
+              {t.canvas.save}
             </button>
             <button
               type="button"
               onClick={() => setEditing(false)}
               className="rounded-md px-3 py-1 text-[13px] text-muted-foreground hover:bg-surface hover:text-foreground"
             >
-              Отмена
+              {t.canvas.cancel}
             </button>
             <span className="ml-auto hidden text-[12px] text-faint sm:inline">{isMac ? "⌘" : "Ctrl"}+Enter · Esc</span>
           </div>
@@ -411,8 +419,8 @@ function BriefCard({ field: f, d }: { field: Field; d: Draft }) {
         <Value d={d} field={f} value={value} />
       ) : (
         <p className="text-[14px] italic text-faint">
-          {ask || "Пока пусто"}
-          {!editable && <span className="not-italic"> · заполняется в беседе</span>}
+          {ask || t.canvas.empty}
+          {!editable && <span className="not-italic">{t.canvas.fromChat}</span>}
         </p>
       )}
       {source && !editing && (
@@ -423,17 +431,17 @@ function BriefCard({ field: f, d }: { field: Field; d: Draft }) {
               onClick={() => room && showRoom(room.id)}
               disabled={!room}
               className="flex min-w-0 items-center gap-1 rounded hover:text-foreground disabled:hover:text-faint"
-              title="Открыть беседу"
+              title={t.canvas.openRoom}
             >
               <MessageSquare size={12} aria-hidden className="shrink-0" />
-              <span className="truncate">{room ? `из беседы "${room.title || "без названия"}"` : "из беседы"}</span>
+              <span className="truncate">{room ? t.canvas.fromRoom(room.title || t.canvas.untitled) : t.canvas.fromSomeRoom}</span>
             </button>
           ) : (
-            <span>поправил {source.by}</span>
+            <span>{t.canvas.editedBy(source.by)}</span>
           )}
           <span aria-hidden>·</span>
           <time className="tabular-nums" dateTime={source.at}>
-            {new Date(source.at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+            {formatTime(source.at)}
           </time>
         </div>
       )}
@@ -442,18 +450,20 @@ function BriefCard({ field: f, d }: { field: Field; d: Draft }) {
 }
 
 function Later({ artifact }: { artifact: string }) {
+  const t = useT();
   return (
     <div className="grid h-full place-items-center text-center">
       <div>
         <Boat size={40} />
         <p className="mt-3 text-[15px] font-semibold">{artifact}</p>
-        <p className="mt-1 text-[14px] text-faint">Появится на этом этапе – билдер подготовит его вместе с тобой.</p>
+        <p className="mt-1 text-[14px] text-faint">{t.canvas.later}</p>
       </div>
     </div>
   );
 }
 
 function Progress({ value, total }: { value: number; total: number }) {
+  const t = useT();
   const r = 9;
   const c = 2 * Math.PI * r;
   return (
@@ -473,7 +483,7 @@ function Progress({ value, total }: { value: number; total: number }) {
           style={{ transition: "stroke-dashoffset .5s, stroke .3s" }}
         />
       </svg>
-      {value} из {total}
+      {t.canvas.progress(value, total)}
     </div>
   );
 }

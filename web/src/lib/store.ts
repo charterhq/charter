@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { onLang, t } from "@/i18n";
 import {
   ApiError,
   BUILDER,
@@ -20,14 +21,17 @@ import {
 // The store mirrors the object: a snapshot from GET /v1/objects/{id}, then its event stream.
 // The UI decides nothing: what is missing, where a value came from, the stages – all come from the core.
 
-// Stages of STD-0002, shown until the builder package names its own.
-const DEFAULT_STAGES: Stage[] = [
-  { id: "request", title: "Заявка", artifacts: [{ kind: "brief", title: "Бриф" }] },
-  { id: "description", title: "Описание", artifacts: [{ kind: "package", title: "Пакет агента" }, { kind: "path", title: "Путь агента" }] },
-  { id: "check", title: "Проверка", artifacts: [{ kind: "eval", title: "Набор проверки" }] },
-  { id: "shadow", title: "Тень", artifacts: [{ kind: "shadow", title: "Отчет тени" }] },
-  { id: "work", title: "Работа", artifacts: [{ kind: "card", title: "Карточка в Confluence" }] },
-];
+// Stages of STD-0002, shown until the builder package names its own; titles follow the interface language.
+const defaultStages = (): Stage[] => {
+  const s = t().stages;
+  return [
+    { id: "request", title: s.request, artifacts: [{ kind: "brief", title: s.brief }] },
+    { id: "description", title: s.description, artifacts: [{ kind: "package", title: s.package }, { kind: "path", title: s.path }] },
+    { id: "check", title: s.check, artifacts: [{ kind: "eval", title: s.eval }] },
+    { id: "shadow", title: s.shadow, artifacts: [{ kind: "shadow", title: s.shadowReport }] },
+    { id: "work", title: s.work, artifacts: [{ kind: "card", title: s.card }] },
+  ];
+};
 
 export type BriefField = string;
 
@@ -86,7 +90,7 @@ const empty: Draft = {
   sources: {},
   missing: [],
   rev: 0,
-  stages: DEFAULT_STAGES,
+  stages: defaultStages(),
   stage: 0,
   rooms: [],
   room: "",
@@ -140,12 +144,19 @@ export function showRoom(id: string) {
   if (draft.get().rooms.some((r) => r.id === id)) void selectRoom(id).then(() => draft.set({ pane: "chat" }));
 }
 
+// The default stages are ours, so they switch language with the interface; the package's stay as they are.
+let ownStages = true;
+onLang(() => {
+  if (ownStages) draft.set({ stages: defaultStages() });
+});
+
 function fromSnapshot(o: ObjectView): Partial<Draft> {
-  const stages = o.stages.length ? o.stages : DEFAULT_STAGES;
+  ownStages = !o.stages.length;
+  const stages = ownStages ? defaultStages() : o.stages;
   const known = new Map(state.rooms.map((r) => [r.id, r]));
   return {
     id: o.id,
-    name: o.title || "Новый агент",
+    name: o.title || t().store.newAgent,
     attrs: o.attrs,
     members: o.members,
     fields: o.fields,
@@ -184,12 +195,12 @@ async function load(id: string) {
 onSessionEnd(() => {
   unsubscribe?.();
   unsubscribe = undefined;
-  draft.set({ status: "login", error: "Сессия закончилась, войди еще раз" });
+  draft.set({ status: "login", error: t().store.sessionEnded });
 });
 
 function fail(e: unknown) {
   if (e instanceof ApiError && e.status === 401) {
-    draft.set({ status: "login", error: draft.get().me ? "Сессия закончилась, войди еще раз" : undefined });
+    draft.set({ status: "login", error: draft.get().me ? t().store.sessionEnded : undefined });
     return;
   }
   draft.set({ status: "error", error: e instanceof Error ? e.message : String(e) });
@@ -213,7 +224,7 @@ export async function boot() {
 }
 
 async function createObject(): Promise<ObjectView> {
-  return api<ObjectView>("POST", `/agents/${BUILDER.agent}/objects`, { connection: BUILDER.connection, title: "Новый агент" });
+  return api<ObjectView>("POST", `/agents/${BUILDER.agent}/objects`, { connection: BUILDER.connection, title: t().store.newAgent });
 }
 
 // newAgent starts another draft.
@@ -274,7 +285,7 @@ export async function editField(field: BriefField, value: unknown) {
     draft.set({ ...fromSnapshot(o), lastFilled: field });
   } catch (e) {
     if (e instanceof ApiError && e.code === "field_conflict") {
-      draft.set((d) => ({ notice: `«${label(d, field)}» уже изменили – показано новое значение`, brief: { ...d.brief, [field]: e.body.current } }));
+      draft.set((d) => ({ notice: t().store.fieldConflict(label(d, field)), brief: { ...d.brief, [field]: e.body.current } }));
       return;
     }
     draft.set({ notice: e instanceof Error ? e.message : String(e) });
@@ -345,7 +356,7 @@ function apply(e: ObjectEvent) {
           conversation: d.conversation,
           role: "agent",
           author: "",
-          text: `Не получилось ответить (${d.status})${d.error ? `: ${d.error}` : ""}. Попробуй переформулировать.`,
+          text: t().store.answerFailed(d.status, d.error ?? ""),
           fields: [],
           at: new Date().toISOString(),
           message_id: `failed-${d.run_id}`,

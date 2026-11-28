@@ -2,18 +2,15 @@ import { Moon, Sun } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { Boat } from "./Mascot";
 import { UserMenu, type Prefs } from "./UserMenu";
+import { useT, type Messages } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
 export type View = "builder" | "agents" | "journal" | "settings";
 
-const NAV: { id: View; label: string }[] = [
-  { id: "builder", label: "Создать агента" },
-  { id: "agents", label: "Агенты" },
-  { id: "journal", label: "Журнал" },
-  { id: "settings", label: "Настройки" },
-];
+const NAV: View[] = ["builder", "agents", "journal", "settings"];
+const navLabel = (t: Messages, v: View) => t.nav[v];
 
 export function TopBar(
   props: Prefs & {
@@ -24,6 +21,7 @@ export function TopBar(
     onPalette: () => void;
   },
 ) {
+  const t = useT();
   // One pill slides under the active item instead of each item lighting up on its own.
   const nav = useRef<HTMLElement>(null);
   const [pill, setPill] = useState<{ x: number; w: number; animate: boolean } | null>(null);
@@ -38,7 +36,7 @@ export function TopBar(
     const ro = new ResizeObserver(() => (subscribed ? place(false) : (subscribed = true)));
     ro.observe(el);
     return () => ro.disconnect();
-  }, [props.view, props.signedIn]);
+  }, [props.view, props.signedIn, t]);
 
   return (
     <header className="flex items-center gap-2 border-b px-3 py-2.5 sm:gap-4 sm:px-5 sm:py-3">
@@ -60,15 +58,15 @@ export function TopBar(
           )}
           {NAV.map((n) => (
             <button
-              key={n.id}
-              onClick={() => props.onView(n.id)}
-              aria-current={props.view === n.id ? "page" : undefined}
+              key={n}
+              onClick={() => props.onView(n)}
+              aria-current={props.view === n ? "page" : undefined}
               className={cn(
                 "relative shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[14px] font-medium text-muted-foreground transition-colors duration-300 hover:text-foreground sm:px-3",
-                props.view === n.id && "text-foreground",
+                props.view === n && "text-foreground",
               )}
             >
-              {n.label}
+              {navLabel(t, n)}
             </button>
           ))}
         </nav>
@@ -78,7 +76,7 @@ export function TopBar(
           onClick={props.onPalette}
           className="ml-auto hidden min-w-56 items-center gap-2 rounded-md border px-3 py-1.5 text-[13px] text-faint hover:border-border-strong sm:flex"
         >
-          Найти или сделать…
+          {t.nav.search}
           <kbd className="ml-auto rounded border border-border-strong px-1.5 font-mono text-[12px] text-muted-foreground">{isMac ? "⌘K" : "Ctrl\u00a0K"}</kbd>
         </button>
       )}
@@ -91,7 +89,7 @@ export function TopBar(
       )}
       <button
         onClick={() => props.onDark(!props.dark)}
-        aria-label="Сменить тему"
+        aria-label={t.nav.toggleTheme}
         className="shrink-0 rounded-md border p-1.5 text-muted-foreground hover:text-foreground"
       >
         {props.dark ? <Sun size={15} /> : <Moon size={15} />}
