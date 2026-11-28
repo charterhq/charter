@@ -1,0 +1,76 @@
+/*
+ * Arc UI components (MIT, see ./LICENSE) read their design tokens under an --arc- prefix,
+ * so they never collide with ours: Arc's --surface and --accent mean other things than
+ * shadcn's. Every --arc- token is our own token under Arc's name; the theme lives in
+ * src/index.css only. Prefixing is mechanical: var(--x) in an Arc module became var(--arc-x).
+ */
+:root {
+  --arc-foreground: var(--foreground);
+  --arc-background: var(--background);
+  --arc-surface: var(--card);
+  --arc-surface-muted: var(--surface);
+  --arc-surface-raised: var(--popover);
+  --arc-text-secondary: var(--muted-foreground);
+  --arc-text-muted: var(--faint);
+  --arc-border: var(--border);
+  --arc-border-subtle: var(--border-subtle);
+  --arc-border-strong: var(--border-strong);
+  --arc-accent: var(--primary);
+  --arc-accent-strong: var(--primary-hover);
+  --arc-success: var(--success);
+  --arc-warning: var(--warning);
+  --arc-danger: var(--destructive);
+  --arc-info: var(--info);
+
+  --arc-control-on: var(--control-on);
+  --arc-control-track: var(--control-track);
+  --arc-control-track-hover: var(--control-track-hover);
+  --arc-control-thumb: var(--control-thumb);
+  --arc-control-thumb-on: var(--control-thumb-on);
+  --arc-control-thumb-shadow: var(--elevation-thumb);
+  --arc-control-glyph: var(--control-glyph);
+  --arc-focus-ring: transparent;
+
+  --arc-shadow-resting: var(--elevation-resting);
+  --arc-shadow-raised: var(--elevation-raised);
+  --arc-shadow-floating: var(--elevation-floating);
+
+  --arc-duration-instant: var(--duration-instant);
+  --arc-duration-fast: var(--duration-fast);
+  --arc-duration-standard: var(--duration-standard);
+  --arc-duration-spring: var(--duration-spring);
+  --arc-ease-enter: var(--ease-enter);
+  --arc-ease-standard: var(--ease-standard);
+  --arc-ease-spring: var(--ease-spring);
+
+  --arc-font-body: var(--font-sans);
+  --arc-text-xs: 0.75rem;
+  --arc-text-sm: 0.8125rem;
+  --arc-text-lg: 1.0625rem;
+  --arc-text-field: 0.875rem;
+  --arc-tracking-body: -0.01em;
+  --arc-leading-body: 1.4;
+
+  --arc-space-1: 0.25rem;
+  --arc-space-2: 0.5rem;
+  --arc-space-3: 0.75rem;
+  --arc-space-4: 1rem;
+  --arc-space-5: 1.125rem;
+  --arc-space-6: 1.25rem;
+  --arc-space-8: 1.5rem;
+
+  --arc-radius-control: var(--radius-lg);
+  --arc-radius-panel: var(--radius-xl);
+  --arc-radius-surface: var(--radius-2xl);
+  --arc-radius-pill: 9999px;
+  --arc-control-height-sm: 2rem;
+  --arc-control-height-md: 2.5rem;
+  --arc-control-height-lg: 2.75rem;
+}
+
+/* Typed text is 16px on phones, so iOS Safari never zooms the page on focus. */
+@media (max-width: 640px) {
+  :root {
+    --arc-text-field: 1rem;
+  }
+}

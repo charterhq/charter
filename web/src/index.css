@@ -2,6 +2,7 @@
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/geist-mono";
+@import "./components/arc/tokens.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -57,6 +58,7 @@
   --control-track: oklch(89.5% 0 0);
   --control-track-hover: oklch(86% 0 0);
   --control-thumb: oklch(100% 0 0);
+  --control-thumb-on: oklch(100% 0 0);
   --control-glyph: oklch(100% 0 0);
 
   --gradient-from: oklch(90% 0.045 300);
@@ -114,6 +116,7 @@
   --control-track: oklch(33% 0 0);
   --control-track-hover: oklch(37% 0 0);
   --control-thumb: oklch(97% 0 0);
+  --control-thumb-on: oklch(19% 0 0);
   --control-glyph: oklch(19% 0 0);
 
   --gradient-from: oklch(38% 0.05 300);
