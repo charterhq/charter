@@ -2,7 +2,7 @@ import { Brain, FileText, Globe, GitBranch, MessageSquare, Search, Sparkles } fr
 import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "./arc/button/button";
 import { AgentPlan, type PlanStep } from "./blocks/AgentPlan";
-import { AgentRun, type RunState, type RunStep } from "./blocks/AgentRun";
+import { AgentRun, RunOutput, type RunState, type RunStep } from "./blocks/AgentRun";
 import { AiAnswer, Claim, Cite, type AnswerSource } from "./blocks/AiAnswer";
 import { AiComposer, ToolToggle } from "./blocks/AiComposer";
 import { ResearchRun, type ResearchQuery } from "./blocks/ResearchRun";
@@ -14,9 +14,21 @@ import { Boat } from "./Mascot";
 
 const RUN: Omit<RunStep, "status">[] = [
   { id: "plan", icon: <Sparkles size={13} />, title: "Разобрал алерт и выбрал первый шаг", meta: "1.2s" },
-  { id: "grafana", icon: <Search size={13} />, title: "Нашел панель в Grafana: api-gateway / 5xx", meta: "0.9s" },
-  { id: "logs", icon: <FileText size={13} />, title: "Прочитал логи за 15 минут", meta: "2.4s" },
-  { id: "post", icon: <MessageSquare size={13} />, title: "Написал дежурному в #alerts" },
+  {
+    id: "grafana",
+    icon: <Search size={13} />,
+    title: "Нашел панель в Grafana: api-gateway / 5xx",
+    meta: "0.9s",
+    details: <RunOutput call="grafana.search api-gateway 5xx">{"api-gateway / 5xx by route\napi-gateway / latency p99"}</RunOutput>,
+  },
+  {
+    id: "logs",
+    icon: <FileText size={13} />,
+    title: "Прочитал логи за 15 минут",
+    meta: "2.4s",
+    details: <RunOutput call="logs.query service=api-gateway since=15m">{"12:04:11 upstream tls: certificate has expired\n12:04:11 upstream tls: certificate has expired\n… 418 строк"}</RunOutput>,
+  },
+  { id: "post", icon: <MessageSquare size={13} />, title: "Написал дежурному в #alerts", meta: "0.6s", details: <RunOutput call="mattermost.post #alerts" /> },
 ];
 
 // play walks a list of steps once on a button press; nothing runs on its own.
