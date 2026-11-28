@@ -8,13 +8,15 @@ import {
   useExternalStoreRuntime,
   type ThreadMessageLike,
 } from "@assistant-ui/react";
-import { ArrowRight, ArrowUp, ChevronDown, Mic, Plus, Square } from "lucide-react";
+import { ArrowRight, ArrowUp, ChevronDown, Mic, NotebookPen, Plus, Square } from "lucide-react";
 import { useMemo } from "react";
 import { DropdownMenu } from "./arc/dropdown-menu/dropdown-menu";
+import { AgentRun, type RunStep } from "./blocks/AgentRun";
+import { ToolCall, ToolCallGroup } from "./blocks/ToolCall";
 import { Boat } from "./Mascot";
 import { locale, useT, type Messages } from "@/i18n";
 import type { Message } from "@/lib/api";
-import { fieldOf, focusField, label, openRoom, say, selectRoom, useDraft, type Room } from "@/lib/store";
+import { fieldOf, focusField, label, openRoom, say, selectRoom, useDraft, type Room, type RoomRun } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 export function Chat() {
@@ -119,7 +121,8 @@ function RoomThread({ room }: { room: Room }) {
         <ThreadPrimitive.Viewport className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
           <ThreadPrimitive.Messages>
             {({ message }) =>
-              message.role === "user" ? (
+              // While a run is under way the runtime adds an empty answer; the run card stands for it.
+              message.role !== "user" && !message.content.some((p) => p.type === "text" && p.text) ? null : message.role === "user" ? (
                 <MessagePrimitive.Root className="flex min-w-0 max-w-[85%] flex-col items-end gap-1.5 self-end">
                   <div className="max-w-full rounded-xl rounded-br-sm border bg-surface px-3 py-2 text-[15px] [overflow-wrap:anywhere] whitespace-pre-wrap">
                     <MessagePrimitive.Parts />
@@ -134,7 +137,7 @@ function RoomThread({ room }: { room: Room }) {
               )
             }
           </ThreadPrimitive.Messages>
-          {room.running && <Typing />}
+          {room.running && <LiveRun run={room.run} />}
         </ThreadPrimitive.Viewport>
         <Composer />
       </ThreadPrimitive.Root>
@@ -142,14 +145,29 @@ function RoomThread({ room }: { room: Room }) {
   );
 }
 
-function Typing() {
+// LiveRun shows where the builder's run is, from the phases the object's stream reports.
+function LiveRun({ run }: { run?: RoomRun }) {
   const t = useT();
+  const phase = run?.phase ?? "sending";
+  const order = ["sending", "accepted", "running", "waiting", "done"];
+  const at = order.indexOf(phase);
+  const step = (id: string, from: number, title: string): RunStep => ({
+    id,
+    title,
+    status: at > from ? "done" : at === from ? (id === "waiting" ? "waiting" : "running") : "todo",
+  });
+  const steps = [step("accepted", 1, t.blocks.runAccepted), step("running", 2, t.blocks.runWorking)];
+  if (phase === "waiting") steps.push(step("waiting", 3, t.blocks.runWaiting));
+  // Before the core takes the message the first step is the one under way.
+  if (at < 1) steps[0].status = "running";
   return (
-    <div className="flex items-center gap-2.5 text-[13px] text-faint" aria-live="polite">
+    <div className="flex items-start gap-2.5" aria-live="polite">
       <span className="grid size-7 shrink-0 place-items-center rounded-lg border bg-surface">
         <Boat size={18} />
       </span>
-      {t.chat.thinking}
+      <div className="min-w-0 flex-1 rounded-xl border bg-card px-3.5 py-2.5 sm:max-w-sm">
+        <AgentRun compact title={t.blocks.runTitle} state={phase === "waiting" ? "waiting" : at < 2 ? "queued" : "working"} steps={steps} />
+      </div>
     </div>
   );
 }
@@ -200,18 +218,20 @@ function Bot({ children, fields }: { children: React.ReactNode; fields: string[]
         <div className="mb-0.5 text-[12px] font-semibold text-foreground">{t.chat.builder}</div>
         {children}
         {cards.length > 0 && (
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {cards.map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => focusField(f)}
-                className="flex items-center gap-1 rounded-md border bg-surface px-2 py-0.5 text-[12px] text-muted-foreground hover:border-border-strong hover:text-foreground"
-              >
-                <ArrowRight size={12} aria-hidden />
-                {label(d, f)}
-              </button>
-            ))}
+          // What the builder wrote to the brief with this answer, as calls of its one tool.
+          <div className="mt-2 whitespace-normal">
+            <ToolCallGroup title={t.blocks.wroteBrief(cards.length)} icons={[<NotebookPen key="brief" size={11} />]}>
+              {cards.map((f) => (
+                <ToolCall
+                  key={f}
+                  icon={<ArrowRight size={13} />}
+                  title={label(d, f)}
+                  status="done"
+                  onOpen={() => focusField(f)}
+                  openLabel={t.blocks.openField(label(d, f))}
+                />
+              ))}
+            </ToolCallGroup>
           </div>
         )}
       </div>

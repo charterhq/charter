@@ -14,6 +14,7 @@ import { Textarea } from "./arc/textarea/textarea";
 import { ToastStack, ToastStackProvider, useToastStack } from "./arc/toast-stack/toast-stack";
 import { ToggleGroup, ToggleGroupItem } from "./arc/toggle-group/toggle-group";
 import { Tooltip } from "./arc/tooltip/tooltip";
+import { KitBlocks } from "./KitBlocks";
 
 // A development page with every base component in our theme: open the UI with ?kit.
 // It is loaded lazily and only in development, so it never reaches the build.
@@ -172,6 +173,8 @@ function KitBody() {
           Тост: ошибка
         </Button>
       </Section>
+
+      <KitBlocks Section={Section} />
     </main>
   );
 }

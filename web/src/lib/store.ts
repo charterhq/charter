@@ -44,7 +44,12 @@ export type Room = {
   loaded: boolean;
   // A run answering this room is under way: the chat shows "typing".
   running: boolean;
+  // The last run about this room as the object's stream reports it: the chat shows its phase.
+  run?: RoomRun;
 };
+
+// Phases of a run from the object's events; "sending" is the UI's own until the core takes the message.
+export type RoomRun = { id?: string; phase: "sending" | "accepted" | "running" | "waiting" | "done"; status?: string; error?: string };
 
 export type Draft = {
   status: "loading" | "ready" | "login" | "error";
@@ -262,7 +267,7 @@ export async function say(roomId: string, text: string) {
   const id = crypto.randomUUID();
   const mine: Message = { seq: 0, message_id: id, conversation: roomId, role: "user", author: state.me ?? "", text, fields: [], at: new Date().toISOString() };
   const room = state.rooms.find((r) => r.id === roomId);
-  updateRoom(roomId, (r) => ({ messages: [...r.messages, mine], running: true }));
+  updateRoom(roomId, (r) => ({ messages: [...r.messages, mine], running: true, run: { phase: "sending" } }));
   try {
     await api("POST", `/objects/${state.id}/conversations/${roomId}/messages`, { message_id: id, text });
     if (room && !room.title) {
@@ -271,7 +276,7 @@ export async function say(roomId: string, text: string) {
       void api("PATCH", `/objects/${state.id}/conversations/${roomId}`, { title }).catch(() => undefined);
     }
   } catch (e) {
-    updateRoom(roomId, (r) => ({ messages: r.messages.filter((m) => m.message_id !== id), running: false }));
+    updateRoom(roomId, (r) => ({ messages: r.messages.filter((m) => m.message_id !== id), running: false, run: undefined }));
     draft.set({ notice: e instanceof Error ? e.message : String(e) });
   }
 }
@@ -349,7 +354,11 @@ function apply(e: ObjectEvent) {
       addMessage(d);
       break;
     case "run":
-      if (d.conversation) updateRoom(d.conversation, () => ({ running: d.state !== "done" }));
+      if (d.conversation)
+        updateRoom(d.conversation, () => ({
+          running: d.state !== "done",
+          run: { id: d.run_id, phase: d.state, status: d.status, error: d.error },
+        }));
       if (d.state === "done" && d.status && d.status !== "ok" && d.conversation) {
         addMessage({
           seq: 0,
