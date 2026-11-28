@@ -1,5 +1,5 @@
 import { ArrowUp, Plus, Square } from "lucide-react";
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, type ReactNode } from "react";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 
@@ -31,12 +31,19 @@ export type AiComposerProps = {
 export function AiComposer(p: AiComposerProps) {
   const t = useT();
   const area = useRef<HTMLTextAreaElement>(null);
-  // The box grows with its text up to a limit, then scrolls.
+  const hint = useId();
+  // The box grows with its text up to a limit, then scrolls. The new height is measured on auto, then
+  // the box goes back to the old one for a frame so the CSS transition has somewhere to start from.
   useLayoutEffect(() => {
     const el = area.current;
     if (!el) return;
+    const from = el.offsetHeight;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 192)}px`;
+    const to = Math.min(el.scrollHeight, 192);
+    if (from === to) return void (el.style.height = `${to}px`);
+    el.style.height = `${from}px`;
+    void el.offsetHeight;
+    el.style.height = `${to}px`;
   }, [p.value]);
   const canSend = !p.disabled && !p.running && p.value.trim() !== "";
   const send = () => canSend && p.onSubmit(p.value.trim());
@@ -56,6 +63,7 @@ export function AiComposer(p: AiComposerProps) {
           value={p.value}
           disabled={p.disabled}
           aria-label={p.label}
+          aria-describedby={hint}
           placeholder={p.placeholder}
           onChange={(e) => p.onChange(e.target.value)}
           onKeyDown={(e) => {
@@ -64,8 +72,11 @@ export function AiComposer(p: AiComposerProps) {
               send();
             }
           }}
-          className="block max-h-48 min-h-11 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-[15px] outline-none placeholder:text-faint"
+          className="block max-h-48 min-h-11 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-[15px] outline-none transition-[height] duration-150 ease-[cubic-bezier(.16,1,.3,1)] placeholder:text-faint"
         />
+        <p id={hint} className="sr-only">
+          {t.blocks.composerHint}
+        </p>
         <div className="flex items-center gap-1 p-2 pt-1">
           {p.onAttach && (
             <button type="button" onClick={p.onAttach} aria-label={t.blocks.attach} title={t.blocks.attach} className={tool}>

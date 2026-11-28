@@ -184,6 +184,7 @@ export const ru: Messages = {
     codeCopy: "Скопировать",
     regenerate: "Ответить заново",
     source: (n, title) => `Источник ${n}: ${title}`,
+    composerHint: "Enter отправляет, Shift и Enter – новая строка.",
     send: "Отправить",
     attach: "Прикрепить",
     run: { queued: "В очереди", working: "Работает", waiting: "Ждет подтверждения", done: "Готово", failed: "Не вышло" },

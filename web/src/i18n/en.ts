@@ -185,6 +185,7 @@ export const en = {
     codeCopy: "Copy",
     regenerate: "Regenerate",
     source: (n: number, title: string) => `Source ${n}: ${title}`,
+    composerHint: "Enter sends, Shift Enter adds a line.",
     send: "Send",
     attach: "Attach",
     run: { queued: "Queued", working: "Working", waiting: "Waiting for approval", done: "Done", failed: "Failed" },
