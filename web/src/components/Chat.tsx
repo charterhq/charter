@@ -162,8 +162,8 @@ function LiveRun({ run }: { run?: RoomRun }) {
   if (at < 1) steps[0].status = "running";
   return (
     <div className="flex items-start gap-2.5" aria-live="polite">
-      <span className="grid size-7 shrink-0 place-items-center rounded-lg border bg-surface">
-        <Boat size={18} />
+      <span className="grid size-8 shrink-0 place-items-center rounded-lg border bg-surface">
+        <Boat size={24} />
       </span>
       <div className="min-w-0 flex-1 rounded-xl border bg-card px-3.5 py-2.5 sm:max-w-sm">
         <AgentRun compact title={t.blocks.runTitle} state={phase === "waiting" ? "waiting" : at < 2 ? "queued" : "working"} steps={steps} />
@@ -211,8 +211,8 @@ function Bot({ children, fields }: { children: React.ReactNode; fields: string[]
   const cards = [...new Set(fields.map(fieldOf))];
   return (
     <div className="flex items-start gap-2.5">
-      <span className="grid size-7 shrink-0 place-items-center rounded-lg border bg-surface">
-        <Boat size={18} />
+      <span className="grid size-8 shrink-0 place-items-center rounded-lg border bg-surface">
+        <Boat size={24} />
       </span>
       <div className="min-w-0 pt-0.5 text-[15px] [overflow-wrap:anywhere] whitespace-pre-wrap">
         <div className="mb-0.5 text-[12px] font-semibold text-foreground">{t.chat.builder}</div>

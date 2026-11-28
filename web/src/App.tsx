@@ -162,7 +162,7 @@ function Loading() {
   return (
     <main className="grid flex-1 place-items-center p-4 text-[15px] text-faint">
       <div className="flex flex-col items-center gap-3">
-        <Boat size={40} bob />
+        <Boat size={48} bob />
         {t.app.loading}
       </div>
     </main>

@@ -53,7 +53,7 @@ export function Canvas() {
   return (
     <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card shadow-panel">
       <header className="flex items-center gap-3 border-b px-4 py-3 sm:px-5 sm:py-3.5">
-        <Boat size={28} bob />
+        <Boat size={36} bob />
         <div className="min-w-0">
           <Title name={d.name} />
           <p className="truncate text-[13px] text-faint">
@@ -447,7 +447,7 @@ function Later({ artifact }: { artifact: string }) {
   return (
     <div className="grid h-full place-items-center text-center">
       <div>
-        <Boat size={40} />
+        <Boat size={48} />
         <p className="mt-3 text-[15px] font-semibold">{artifact}</p>
         <p className="mt-1 text-[14px] text-faint">{t.canvas.later}</p>
       </div>

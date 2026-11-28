@@ -285,7 +285,7 @@ export function KitBlocks({ Section }: { Section: (p: { title: string; children:
             title="Разбор алерта: 5xx на api-gateway"
             agent={
               <>
-                <Boat size={16} /> alert-triage
+                <Boat size={12} /> alert-triage
               </>
             }
             state={runState}
