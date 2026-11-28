@@ -1,5 +1,5 @@
 import { Moon, Sun } from "lucide-react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Boat } from "./Mascot";
 import { UserMenu, type Prefs } from "./UserMenu";
 import { useT, type Messages } from "@/i18n";
@@ -12,6 +12,17 @@ export type View = "builder" | "agents" | "journal" | "settings";
 const NAV: View[] = ["builder", "agents", "journal", "settings"];
 const navLabel = (t: Messages, v: View) => t.nav[v];
 
+// Below sm the sections do not fit next to the logo and move into the avatar menu.
+const narrowQuery = typeof window !== "undefined" ? window.matchMedia("(max-width: 639px)") : null;
+const useNarrow = () =>
+  useSyncExternalStore(
+    (f) => {
+      narrowQuery?.addEventListener("change", f);
+      return () => narrowQuery?.removeEventListener("change", f);
+    },
+    () => narrowQuery?.matches ?? false,
+  );
+
 export function TopBar(
   props: Prefs & {
     view: View;
@@ -22,6 +33,7 @@ export function TopBar(
   },
 ) {
   const t = useT();
+  const narrow = useNarrow();
   // One pill slides under the active item instead of each item lighting up on its own.
   const nav = useRef<HTMLElement>(null);
   const [pill, setPill] = useState<{ x: number; w: number; animate: boolean } | null>(null);
@@ -44,8 +56,10 @@ export function TopBar(
         <Boat />
         <span className="hidden sm:inline">charter</span>
       </div>
+      {/* On a narrow screen the header names the section; the sections are in the avatar menu. */}
+      {props.signedIn && <span className="min-w-0 truncate text-[15px] font-semibold sm:hidden">{navLabel(t, props.view)}</span>}
       {props.signedIn && (
-        <nav ref={nav} className="relative flex min-w-0 gap-0.5 overflow-x-auto sm:ml-2">
+        <nav ref={nav} className="relative hidden min-w-0 gap-0.5 sm:ml-2 sm:flex">
           {pill && (
             <span
               aria-hidden
@@ -82,7 +96,14 @@ export function TopBar(
       )}
       {props.signedIn ? (
         <div className="ml-auto sm:ml-0">
-          <UserMenu {...props} />
+          <UserMenu
+            {...props}
+            extra={
+              narrow
+                ? NAV.map((n) => ({ key: `nav-${n}`, label: navLabel(t, n), checked: props.view === n, onSelect: () => props.onView(n) }))
+                : undefined
+            }
+          />
         </div>
       ) : (
         <span className="ml-auto" />

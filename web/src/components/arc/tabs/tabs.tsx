@@ -4,7 +4,7 @@ import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { createContext, useCallback, useContext, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ComponentPropsWithoutRef, RefObject } from "react";
 import { ChevronLeft as NavArrowLeft, ChevronRight as NavArrowRight } from "lucide-react";
-import { AnimatePresence, LayoutGroup, animate, motion, useReducedMotionConfig } from "motion/react";
+import { AnimatePresence, LayoutGroup, animate, m, useReducedMotionConfig } from "motion/react";
 import type { AnimationPlaybackControls, Variants } from "motion/react";
 import { motionTokens } from "../lib/motion-tokens";
 import styles from "./tabs.module.css";
@@ -75,9 +75,9 @@ export function TabsList({ className, ...props }: ComponentPropsWithoutRef<typeo
   const scrollTabs = (direction: number) => viewport.current?.scrollBy({ left: direction * (viewport.current?.clientWidth ?? 0) * .75, behavior: reduced ? "instant" : "smooth" });
   return <div ref={shell} className={styles.listShell} data-overflow={edges.overflow} data-left={edges.left} data-right={edges.right}>
     {edges.overflow && <button type="button" className={`${styles.scrollButton} ${styles.scrollLeft}`} aria-label="Scroll tabs left" disabled={!edges.left} onClick={() => scrollTabs(-1)}><NavArrowLeft width={17} height={17} aria-hidden="true"/></button>}
-    <motion.div ref={viewport} layoutScroll className={styles.viewport} onFocusCapture={event => { if (event.target instanceof HTMLElement && event.target.getAttribute("role") === "tab") reveal(event.target); }}>
+    <m.div ref={viewport} layoutScroll className={styles.viewport} onFocusCapture={event => { if (event.target instanceof HTMLElement && event.target.getAttribute("role") === "tab") reveal(event.target); }}>
       <TabsPrimitive.List {...props} ref={list} className={[styles.list, className].filter(Boolean).join(" ")}/>
-    </motion.div>
+    </m.div>
     {edges.overflow && <button type="button" className={`${styles.scrollButton} ${styles.scrollRight}`} aria-label="Scroll tabs right" disabled={!edges.right} onClick={() => scrollTabs(1)}><NavArrowRight width={17} height={17} aria-hidden="true"/></button>}
   </div>;
 }
@@ -87,7 +87,7 @@ export function TabsTrigger({ className, children, value, ...props }: ComponentP
   const reduced = useReducedMotionConfig();
   // The LayoutGroup in Tabs scopes the highlight to this instance, so it glides between triggers but never flies in from another tab set.
   return <TabsPrimitive.Trigger {...props} value={value} data-value={value} className={[styles.trigger, className].filter(Boolean).join(" ")}>
-    {active === value && <motion.span className={styles.selection} layoutId="selection" layoutDependency={active} transition={reduced ? { duration: 0 } : motionTokens.spring.morph} aria-hidden="true"/>}
+    {active === value && <m.span className={styles.selection} layoutId="selection" layoutDependency={active} transition={reduced ? { duration: 0 } : motionTokens.spring.morph} aria-hidden="true"/>}
     <span className={styles.triggerLabel}>{children}</span>
   </TabsPrimitive.Trigger>;
 }
@@ -133,7 +133,7 @@ export function TabsContent({ className, value, forceMount, children, ...props }
   if (forceMount) return <TabsPrimitive.Content {...props} value={value} forceMount className={classes}>{children}</TabsPrimitive.Content>;
   return <AnimatePresence initial={false} mode="popLayout" custom={direction}>
     {selected && <TabsPrimitive.Content {...props} key={value} value={value} forceMount asChild>
-      <motion.div ref={panel} className={classes} custom={direction} variants={reduced ? panelFade : panelMotion} initial="enter" animate="center" exit="exit">{children}</motion.div>
+      <m.div ref={panel} className={classes} custom={direction} variants={reduced ? panelFade : panelMotion} initial="enter" animate="center" exit="exit">{children}</m.div>
     </TabsPrimitive.Content>}
   </AnimatePresence>;
 }

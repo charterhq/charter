@@ -1,23 +1,13 @@
 import { Command } from "cmdk";
-import { useEffect } from "react";
 import { useT } from "@/i18n";
 
 export type Action = { id: string; label: string; hint?: string; run: () => void };
 
 // Every action is one search away: the "three clicks" rule.
-export function CommandPalette(props: { open: boolean; onOpenChange: (o: boolean) => void; actions: Action[] }) {
+// It loads on first open; the hotkey lives in the app.
+export default function CommandPalette(props: { open: boolean; onOpenChange: (o: boolean) => void; actions: Action[] }) {
   const t = useT();
   const { open, onOpenChange } = props;
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        onOpenChange(!open);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onOpenChange]);
 
   return (
     <Command.Dialog

@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, FocusEvent, ReactNode } from "react";
 import * as DropdownPrimitive from "@radix-ui/react-dropdown-menu";
-import { AnimatePresence, motion, useReducedMotionConfig } from "motion/react";
+import { AnimatePresence, m, useReducedMotionConfig } from "motion/react";
 import { Check, ChevronDown } from "lucide-react";
 import { motionTokens } from "../lib/motion-tokens";
 import styles from "./dropdown-menu.module.css";
@@ -45,12 +45,12 @@ function TriggerLabel({ text }: { text: string }) {
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
-  return <motion.span className={styles.label} initial={false} animate={{ width: size.width }} transition={size.animate && !reduced ? motionTokens.spring.morph : { duration: 0 }}>
+  return <m.span className={styles.label} initial={false} animate={{ width: size.width }} transition={size.animate && !reduced ? motionTokens.spring.morph : { duration: 0 }}>
     <span ref={measure} className={styles.labelMeasure} aria-hidden="true">{text}</span>
     <AnimatePresence mode="popLayout" initial={false}>
-      <motion.span key={text} className={styles.labelText} initial={reduced ? false : { opacity: 0, y: "0.3em", filter: `blur(${motionTokens.blur.soft}px)` }} animate={{ opacity: 1, y: 0, filter: "blur(0px)" }} exit={reduced ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0, y: "-0.3em", filter: `blur(${motionTokens.blur.subtle}px)`, transition: { duration: motionTokens.duration.fast, ease: [...motionTokens.ease.standard] } }} transition={{ duration: motionTokens.duration.standard, ease: [...motionTokens.ease.enter] }}>{text}</motion.span>
+      <m.span key={text} className={styles.labelText} initial={reduced ? false : { opacity: 0, y: "0.3em", filter: `blur(${motionTokens.blur.soft}px)` }} animate={{ opacity: 1, y: 0, filter: "blur(0px)" }} exit={reduced ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0, y: "-0.3em", filter: `blur(${motionTokens.blur.subtle}px)`, transition: { duration: motionTokens.duration.fast, ease: [...motionTokens.ease.standard] } }} transition={{ duration: motionTokens.duration.standard, ease: [...motionTokens.ease.enter] }}>{text}</m.span>
     </AnimatePresence>
-  </motion.span>;
+  </m.span>;
 }
 
 export function DropdownMenu({ label, items, icon, trigger, header, align = "end", width }: DropdownMenuProps) {
@@ -76,7 +76,7 @@ export function DropdownMenu({ label, items, icon, trigger, header, align = "end
     {trigger ? <DropdownPrimitive.Trigger asChild>{trigger}</DropdownPrimitive.Trigger> : <DropdownPrimitive.Trigger className={styles.trigger} type="button">{icon && <span className={styles.triggerIcon} aria-hidden="true">{icon}</span>}<TriggerLabel text={label}/><ChevronDown className={styles.chevron} size={15} strokeWidth={1.8} aria-hidden="true"/></DropdownPrimitive.Trigger>}
     <DropdownPrimitive.Portal><DropdownPrimitive.Content className={styles.menu} style={width ? { width } : undefined} aria-label={trigger ? label : undefined} sideOffset={6} align={align} collisionPadding={12} loop onFocus={onMenuFocus} onPointerMoveCapture={() => { pointer.current = true; }} onKeyDownCapture={() => { pointer.current = false; }}>
       {/* One highlight glides between items for the pointer and jumps instantly for the keyboard. */}
-      <motion.span className={styles.highlight} data-tone={highlight?.danger ? "danger" : undefined} aria-hidden="true" initial={false} animate={highlight ? { y: highlight.top, height: highlight.height, opacity: 1 } : { opacity: 0 }} transition={{ default: highlight?.glide && !reduced ? motionTokens.spring.morph : { duration: 0 }, opacity: { duration: reduced ? 0 : motionTokens.duration.instant } }}/>
+      <m.span className={styles.highlight} data-tone={highlight?.danger ? "danger" : undefined} aria-hidden="true" initial={false} animate={highlight ? { y: highlight.top, height: highlight.height, opacity: 1 } : { opacity: 0 }} transition={{ default: highlight?.glide && !reduced ? motionTokens.spring.morph : { duration: 0 }, opacity: { duration: reduced ? 0 : motionTokens.duration.instant } }}/>
       {header && <div className={styles.header}>{header}</div>}
       {items.map((item, index) => <Fragment key={item.key ?? item.label}>{item.separatorBefore && <DropdownPrimitive.Separator className={styles.separator}/>}<DropdownPrimitive.Item className={[styles.item, item.destructive ? styles.destructive : ""].filter(Boolean).join(" ")} data-tone={item.destructive ? "danger" : undefined} style={{ "--i": index } as CSSProperties} disabled={item.disabled} onSelect={item.onSelect} {...(item.checked !== undefined ? { role: "menuitemradio", "aria-checked": item.checked } : {})}>{item.icon && <span className={styles.icon} aria-hidden="true">{item.icon}</span>}<span className={styles.itemLabel}>{item.label}</span>{item.hint != null && <span className={styles.hint}>{item.hint}</span>}{item.checked && <Check className={styles.check} size={14} strokeWidth={2} aria-hidden="true"/>}</DropdownPrimitive.Item></Fragment>)}
     </DropdownPrimitive.Content></DropdownPrimitive.Portal>

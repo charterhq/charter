@@ -1,17 +1,20 @@
-import { MotionConfig } from "motion/react";
-import { useEffect, useState } from "react";
+import { LazyMotion, MotionConfig } from "motion/react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Button } from "./components/arc/button/button";
 import { Input } from "./components/arc/input/input";
 import { ToastStack, ToastStackProvider, useToastStack } from "./components/arc/toast-stack/toast-stack";
-import { Canvas } from "./components/Canvas";
-import { Chat } from "./components/Chat";
-import { CommandPalette, type Action } from "./components/CommandPalette";
+import type { Action } from "./components/CommandPalette";
 import { TopBar, type View } from "./components/TopBar";
 import { Boat } from "./components/Mascot";
 import { useT } from "./i18n";
 import { ApiError, authConfig, login, tokenLogin, type AuthConfig } from "./lib/api";
-import { boot, counted, draft, newAgent, useDraft } from "./lib/store";
-import { cn } from "./lib/utils";
+import { boot, draft, newAgent, useDraft } from "./lib/store";
+
+// The builder (the chat runtime and the canvas) and the palette load after the first screen.
+const Builder = lazy(() => import("./components/Builder"));
+const CommandPalette = lazy(() => import("./components/CommandPalette"));
+
+const loadMotion = () => import("./lib/motion-features").then((r) => r.default);
 
 const THEME_KEY = "charter.theme";
 const MOTION_KEY = "charter.reduce-motion";
@@ -38,12 +41,7 @@ export default function App() {
   const [palette, setPalette] = useState(false);
   const [dark, setDark] = useState(readTheme);
   const [reduceMotion, setReduceMotion] = useState(readMotion);
-  // Below lg the chat and the agent are two tabs; from lg up they sit side by side.
   const d = useDraft();
-  const pane = d.pane;
-  const setPane = (p: typeof pane) => draft.set({ pane: p });
-  const total = counted(d).length;
-  const filled = total - d.missing.length;
 
   useEffect(() => {
     void boot();
@@ -73,6 +71,23 @@ export default function App() {
     }
   }, [reduceMotion]);
 
+  // ⌘K opens the palette from anywhere, before its code is loaded too.
+  const [paletteUsed, setPaletteUsed] = useState(false);
+  useEffect(() => {
+    if (palette) setPaletteUsed(true);
+  }, [palette]);
+  useEffect(() => {
+    if (d.status !== "ready") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setPalette((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [d.status]);
+
   const actions: Action[] = [
     { id: "builder", label: t.palette.builder, hint: t.palette.builderHint, run: () => setView("builder") },
     {
@@ -92,6 +107,7 @@ export default function App() {
   return (
     // "Reduce motion" in the profile settings reaches the Arc components through MotionConfig.
     <MotionConfig reducedMotion={reduceMotion ? "always" : "user"}>
+      <LazyMotion features={loadMotion}>
       <ToastStackProvider>
       <div className="flex h-full flex-col">
         <TopBar
@@ -107,44 +123,23 @@ export default function App() {
         {view === "builder" && d.status !== "ready" ? (
           <Gate />
         ) : view === "builder" ? (
-          <main className="flex min-h-0 flex-1 flex-col gap-3 p-3 lg:grid lg:grid-cols-[minmax(300px,1fr)_minmax(0,2fr)] lg:gap-4 lg:p-4">
-            <div role="tablist" aria-label={t.app.tabs} className="grid shrink-0 grid-cols-2 gap-1 rounded-lg border bg-surface p-1 lg:hidden">
-              {(
-                [
-                  ["chat", t.app.chatTab],
-                  ["agent", t.app.agentTab(filled, total)],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  role="tab"
-                  aria-selected={pane === id}
-                  onClick={() => setPane(id)}
-                  className={cn(
-                    "rounded-md py-1.5 text-[14px] font-medium tabular-nums text-muted-foreground",
-                    pane === id && "bg-card text-foreground shadow-[inset_0_0_0_1px_var(--border)]",
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className={cn("min-h-0 flex-1 flex-col lg:flex", pane === "chat" ? "flex" : "hidden")}>
-              <Chat />
-            </div>
-            <div className={cn("min-h-0 flex-1 flex-col lg:flex", pane === "agent" ? "flex" : "hidden")}>
-              <Canvas />
-            </div>
-          </main>
+          <Suspense fallback={<Loading />}>
+            <Builder />
+          </Suspense>
         ) : (
           <main className="grid flex-1 place-items-center p-4 text-center text-[15px] text-faint">
             {t.placeholder[view]}
           </main>
         )}
       </div>
-      <CommandPalette open={palette} onOpenChange={setPalette} actions={actions} />
+      {paletteUsed && (
+        <Suspense>
+          <CommandPalette open={palette} onOpenChange={setPalette} actions={actions} />
+        </Suspense>
+      )}
       <Notices />
       </ToastStackProvider>
+      </LazyMotion>
     </MotionConfig>
   );
 }
@@ -162,19 +157,23 @@ function Notices() {
   return <ToastStack position="bottom-center" label={t.app.notices} strings={{ dismiss: t.app.dismiss, types: t.app.toastTypes }} />;
 }
 
+function Loading() {
+  const t = useT();
+  return (
+    <main className="grid flex-1 place-items-center p-4 text-[15px] text-faint">
+      <div className="flex flex-col items-center gap-3">
+        <Boat size={40} bob />
+        {t.app.loading}
+      </div>
+    </main>
+  );
+}
+
 // Gate is the screen before the draft: loading, the login, or a core that did not answer.
 function Gate() {
   const t = useT();
   const d = useDraft();
-  if (d.status === "loading")
-    return (
-      <main className="grid flex-1 place-items-center p-4 text-[15px] text-faint">
-        <div className="flex flex-col items-center gap-3">
-          <Boat size={40} bob />
-          {t.app.loading}
-        </div>
-      </main>
-    );
+  if (d.status === "loading") return <Loading />;
   if (d.status === "login") return <Login error={d.error} />;
   return (
     <main className="grid flex-1 place-items-center p-4">

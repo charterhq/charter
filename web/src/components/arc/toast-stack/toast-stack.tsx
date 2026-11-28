@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { FocusEvent, KeyboardEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { AnimatePresence, animate, motion, useIsPresent, useMotionValue, usePresence, useReducedMotionConfig, useTransform } from "motion/react";
+import { AnimatePresence, animate, m, useIsPresent, useMotionValue, usePresence, useReducedMotionConfig, useTransform } from "motion/react";
 import type { HTMLMotionProps, MotionProps, TargetAndTransition, Transition } from "motion/react";
 import { CircleCheck, CircleX, Info, TriangleAlert, X } from "lucide-react";
 import { motionTokens } from "../lib/motion-tokens";
@@ -186,7 +186,7 @@ export function useToastStack(): ToastStackApi & { count: number } {
 /** Outgoing copies are hidden from assistive tech while they fade, so the live region reads only the current text. */
 function Swap(props: HTMLMotionProps<"span">) {
   const present = useIsPresent();
-  return <motion.span {...props} aria-hidden={present ? props["aria-hidden"] : true} />;
+  return <m.span {...props} aria-hidden={present ? props["aria-hidden"] : true} />;
 }
 
 type Gesture = { pointerId: number; startX: number; startY: number; origin: number; active: boolean; samples: { t: number; x: number }[] };
@@ -367,9 +367,9 @@ function ToastItem({ strings, toast, target, expanded, front, hidden, paused, re
   const Icon = toast.type === "loading" ? null : icons[toast.type];
   const swap = reduce ? fadeOnly : textSwap;
 
-  return <motion.li ref={itemRef} className={styles.item} style={{ y, scale, height, opacity, zIndex: toast.seq }} data-front={front} data-expanded={expanded} inert={hidden} onKeyDown={onKeyDown}>
-    <motion.div ref={cardRef} className={styles.card} style={{ x, opacity: swipeFade }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={event => onPointerEnd(event, false)} onPointerCancel={event => onPointerEnd(event, true)} onClick={onCardClick}>
-      <motion.div ref={contentRef} className={styles.content} style={{ opacity: contentOpacity }}>
+  return <m.li ref={itemRef} className={styles.item} style={{ y, scale, height, opacity, zIndex: toast.seq }} data-front={front} data-expanded={expanded} inert={hidden} onKeyDown={onKeyDown}>
+    <m.div ref={cardRef} className={styles.card} style={{ x, opacity: swipeFade }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={event => onPointerEnd(event, false)} onPointerCancel={event => onPointerEnd(event, true)} onClick={onCardClick}>
+      <m.div ref={contentRef} className={styles.content} style={{ opacity: contentOpacity }}>
         {/* A new type morphs its icon in place: the old glyph shrinks into a blur while the new one grows out of it. */}
         <span className={styles.icon} data-type={toast.type} aria-hidden="true">
           <AnimatePresence mode="popLayout" initial={false}>
@@ -383,16 +383,16 @@ function ToastItem({ strings, toast, target, expanded, front, hidden, paused, re
         </div>
         {/* The action folds its width away when an update removes it, so the copy widens instead of snapping. */}
         <AnimatePresence initial={false}>
-          {toast.action ? <motion.div key="action" ref={actionRef} className={styles.actionSlot} initial={reduce ? { opacity: 0 } : { width: 0, opacity: 0 }} animate={{ width: "auto", opacity: 1 }} exit={reduce ? { opacity: 0 } : { width: 0, opacity: 0 }} transition={reduce ? reducedFade : { width: motionTokens.spring.smooth, opacity: fade }} onAnimationStart={() => markMoving(true)} onAnimationComplete={() => markMoving(false)}>
+          {toast.action ? <m.div key="action" ref={actionRef} className={styles.actionSlot} initial={reduce ? { opacity: 0 } : { width: 0, opacity: 0 }} animate={{ width: "auto", opacity: 1 }} exit={reduce ? { opacity: 0 } : { width: 0, opacity: 0 }} transition={reduce ? reducedFade : { width: motionTokens.spring.smooth, opacity: fade }} onAnimationStart={() => markMoving(true)} onAnimationComplete={() => markMoving(false)}>
             <button type="button" className={styles.action} onClick={runAction}>{toast.action.label}</button>
-          </motion.div> : null}
+          </m.div> : null}
         </AnimatePresence>
         <button ref={closeRef} type="button" className={styles.close} aria-label={strings.dismiss} onClick={() => store.dismiss(id)}>
           <X width={16} height={16} strokeWidth={1.75} aria-hidden="true" />
         </button>
-      </motion.div>
-    </motion.div>
-  </motion.li>;
+      </m.div>
+    </m.div>
+  </m.li>;
 }
 
 export function ToastStack({ label = "Notifications", position = "bottom-right", contained = false, visibleToasts = 3, hotkey = true, className, strings = defaultStrings }: ToastStackProps) {

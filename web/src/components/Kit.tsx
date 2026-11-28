@@ -1,3 +1,4 @@
+import { LazyMotion, domMax } from "motion/react";
 import { Bell, Bold, Italic, Pencil, Trash2, Underline } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Button } from "./arc/button/button";
@@ -21,10 +22,12 @@ import { KitBlocks } from "./KitBlocks";
 
 export default function Kit() {
   return (
-    <ToastStackProvider>
-      <KitBody />
-      <ToastStack />
-    </ToastStackProvider>
+    <LazyMotion features={domMax}>
+      <ToastStackProvider>
+        <KitBody />
+        <ToastStack />
+      </ToastStackProvider>
+    </LazyMotion>
   );
 }
 

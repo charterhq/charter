@@ -3,7 +3,7 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
 import type { ComponentPropsWithoutRef, ElementRef } from "react";
 import * as SwitchPrimitive from "@radix-ui/react-switch";
-import { animate, motion, useMotionValue, useReducedMotionConfig } from "motion/react";
+import { animate, m, useMotionValue, useReducedMotionConfig } from "motion/react";
 import type { Transition } from "motion/react";
 import { motionTokens } from "../lib/motion-tokens";
 import styles from "./switch.module.css";
@@ -63,7 +63,7 @@ export const Switch = forwardRef<ElementRef<typeof SwitchPrimitive.Root>, Switch
     >
       <span className={styles.track}>
         {/* The thumb stretches like a held finger and keeps its far edge anchored, then travels on a spring. */}
-        <motion.span className={styles.thumb} style={{ scaleX }} initial={false} animate={{ x: on ? travel - extra : 0, width: size + extra }} transition={reduceMotion ? { duration: 0 } : { x: glide, width: motionTokens.spring.snappy }} />
+        <m.span className={styles.thumb} style={{ scaleX }} initial={false} animate={{ x: on ? travel - extra : 0, width: size + extra }} transition={reduceMotion ? { duration: 0 } : { x: glide, width: motionTokens.spring.snappy }} />
       </span>
       {label ? <span className={styles.label}>{label}</span> : null}
     </SwitchPrimitive.Root>

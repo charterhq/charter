@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, KeyboardEvent, ReactNode } from "react";
-import { LayoutGroup, motion, useReducedMotionConfig } from "motion/react";
+import { LayoutGroup, m, useReducedMotionConfig } from "motion/react";
 import { motionTokens } from "../lib/motion-tokens";
 import styles from "./toggle-group.module.css";
 
@@ -143,7 +143,7 @@ export function ToggleGroupItem({ value, label, children, disabled: itemDisabled
     onClick={event => { onClick?.(event); if (!event.defaultPrevented) toggle(value); }}
   >
     {single
-      ? on && <motion.span className={styles.fill} layoutId="fill" initial={false} style={{ borderRadius: 15 }} transition={reduced ? { duration: 0 } : motionTokens.spring.morph} aria-hidden="true" />
+      ? on && <m.span className={styles.fill} layoutId="fill" initial={false} style={{ borderRadius: 15 }} transition={reduced ? { duration: 0 } : motionTokens.spring.morph} aria-hidden="true" />
       : <span className={styles.fill} aria-hidden="true" />}
     <span className={styles.content}>{children}</span>
   </button>;
