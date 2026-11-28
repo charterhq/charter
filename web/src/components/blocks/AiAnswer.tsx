@@ -1,5 +1,6 @@
-import { Check, ChevronDown, Copy, RotateCcw } from "lucide-react";
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { ChevronDown, RotateCcw } from "lucide-react";
+import { CopyButton } from "./CopyButton";
+import { useId, useState, type ReactNode } from "react";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 
@@ -93,28 +94,6 @@ export function AiAnswer({ question, thought, reasoning, sources = [], children,
 }
 
 const action = "grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-surface hover:text-foreground";
-
-function CopyButton({ text }: { text: string }) {
-  const t = useT();
-  const [done, setDone] = useState(false);
-  useEffect(() => {
-    if (!done) return;
-    const id = window.setTimeout(() => setDone(false), 1500);
-    return () => window.clearTimeout(id);
-  }, [done]);
-  const label = done ? t.blocks.copied : t.blocks.copy;
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={() => void navigator.clipboard?.writeText(text).then(() => setDone(true), () => undefined)}
-      className={action}
-    >
-      {done ? <Check size={14} className="text-success" aria-hidden /> : <Copy size={14} aria-hidden />}
-    </button>
-  );
-}
 
 // Claim is a sentence that a citation supports: it lights up while the citation is pointed at.
 export function Claim({ children }: { children: ReactNode }) {

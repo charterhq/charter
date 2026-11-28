@@ -91,7 +91,7 @@ export function Collapse({ open = true, id, className, children }: { open?: bool
 
   return (
     <Parent.Provider value={own}>
-      <div ref={outer} id={id} inert={!open} style={{ height: initial }} className={cn("overflow-clip", open && "[overflow-clip-margin:4px]", className)}>
+      <div ref={outer} id={id} inert={!open} aria-hidden={!open || undefined} style={{ height: initial }} className={cn("overflow-clip", open && "[overflow-clip-margin:4px]", className)}>
         <div ref={inner} className={cn("transition-opacity", open ? "duration-150" : "opacity-0 duration-75")}>
           {children}
         </div>

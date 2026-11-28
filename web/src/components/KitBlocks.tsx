@@ -72,6 +72,13 @@ export function KitBlocks({ Section }: { Section: (p: { title: string; children:
   const [qAt, replayResearch] = usePlay(QUERIES.length + 1, 1000);
   const researching = qAt <= QUERIES.length;
 
+  const [callAllowed, setCallAllowed] = useState<"done" | "skipped" | undefined>();
+  const [callFailed, setCallFailed] = useState(true);
+  useEffect(() => {
+    if (callFailed) return;
+    const id = window.setTimeout(() => setCallFailed(true), 1500);
+    return () => window.clearTimeout(id);
+  }, [callFailed]);
   const [text, setText] = useState("");
   const [running, setRunning] = useState(false);
   const [web, setWeb] = useState(true);
@@ -86,12 +93,34 @@ export function KitBlocks({ Section }: { Section: (p: { title: string; children:
     <>
       <Section title="Блоки: tool-call">
         <div className="w-full max-w-xl space-y-3">
-          <ToolCallGroup title="Работает с инструментами: 3" icons={[<Search key="s" size={11} />, <Globe key="g" size={11} />, <FileText key="f" size={11} />]}>
-            <ToolCall icon={<Search size={13} />} title="Искал runbook по api-gateway" meta="4 результата · 1.2s" status="done" details={<pre className="whitespace-pre-wrap font-mono">{'{ "query": "runbook api-gateway 5xx" }'}</pre>} />
-            <ToolCall icon={<Globe size={13} />} title="Открыл дашборд api-gateway" meta="760ms" status="done" />
-            <ToolCall icon={<FileText size={13} />} title="Читает логи сервиса" status="running" />
-            <ToolCall icon={<MessageSquare size={13} />} title="Написать в #alerts" status="waiting" details="Ждет подтверждения дежурного" />
-            <ToolCall icon={<GitBranch size={13} />} title="Открыть MR с правкой" status="error" details="Нет прав на репозиторий" />
+          <ToolCallGroup title="Использовал инструменты: 4" failed={callFailed ? 1 : 0} icons={[<Search key="s" size={11} />, <Globe key="g" size={11} />, <FileText key="f" size={11} />]}>
+            <ToolCall
+              icon={<Search size={13} />}
+              title="Искал runbook по api-gateway"
+              meta="4 результата · 1.2s"
+              status="done"
+              input={{ query: "runbook api-gateway 5xx", space: "SRE" }}
+              inputText={'{ "query": "runbook api-gateway 5xx", "space": "SRE" }'}
+              output={
+                <ul className="space-y-1">
+                  <li>Runbook: 5xx на api-gateway</li>
+                  <li>Runbook: истекший сертификат</li>
+                  <li>Как откатить выкладку</li>
+                  <li>Дежурства SRE</li>
+                </ul>
+              }
+              outputText="Runbook: 5xx на api-gateway"
+            />
+            <ToolCall icon={<Globe size={13} />} title="Открыл дашборд api-gateway" meta="760ms" status="done" input={{ dashboard: "api-gateway", range: "15m" }} />
+            <ToolCall icon={<MessageSquare size={13} />} title="Написать в #alerts" status={callAllowed ?? "waiting"} message={callAllowed ? undefined : "Ждет подтверждения дежурного"} input={{ channel: "#alerts", text: "Похоже на истекший сертификат" }} onAllow={() => setCallAllowed("done")} onDeny={() => setCallAllowed("skipped")} />
+            <ToolCall
+              icon={<GitBranch size={13} />}
+              title="Открыть MR с правкой"
+              status={callFailed ? "error" : "running"}
+              message={callFailed ? "Нет прав на репозиторий" : undefined}
+              input={{ repo: "platform/api-gateway", branch: "fix/cert" }}
+              onRetry={() => setCallFailed(false)}
+            />
           </ToolCallGroup>
         </div>
       </Section>
