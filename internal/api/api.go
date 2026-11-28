@@ -34,7 +34,8 @@ type Server struct {
 	Engine *run.Engine
 	// Tokens maps a bearer token to the caller name: drivers, CI, agentctl. People log in through OIDC.
 	Tokens map[string]string
-	// OIDC logs people in; nil means bearer tokens only.
+	// OIDC opens browser sessions (people through the provider, the platform with its tokens); nil
+	// means bearer tokens only and no UI login.
 	OIDC *OIDC
 	// Publishers are the callers allowed to publish packages (CI of the package repositories).
 	Publishers map[string]bool
@@ -74,8 +75,12 @@ func (s *Server) Handler() http.Handler {
 		r.Handle(prefix+"/*", http.StripPrefix(prefix, cb.Handler(s.Engine)))
 	}
 	if s.OIDC != nil {
-		r.Get("/v1/auth/login", s.login)
-		r.Get("/v1/auth/callback", s.callback)
+		r.Get("/v1/auth/config", s.authConfig)
+		r.Post("/v1/auth/token", s.tokenLogin)
+		if s.OIDC.Issuer != "" {
+			r.Get("/v1/auth/login", s.login)
+			r.Get("/v1/auth/callback", s.callback)
+		}
 	}
 	r.Group(func(r chi.Router) {
 		r.Use(s.auth)

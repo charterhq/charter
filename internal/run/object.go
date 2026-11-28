@@ -241,6 +241,29 @@ func (e *Engine) loadObject(ctx context.Context, q interface {
 	return o, nil
 }
 
+// MayTalk says whether a person of the UI may talk to the agent through the connection: the web
+// message source of the connection lets them in by users or groups. Creating an object asks the same,
+// so nobody fills the database with drafts they could not talk about.
+func (e *Engine) MayTalk(ctx context.Context, agent, connection, person string, groups []string) error {
+	pkg, err := e.current(ctx, agent)
+	if err != nil {
+		return err
+	}
+	conn, ok := pkg.Connections[connection]
+	if !ok {
+		return fmt.Errorf("%s/%s: %w", agent, connection, ErrNoConnection)
+	}
+	for src, ct := range conn.Triggers {
+		if ct.Receiver == ReceiverWeb && hasTrigger(pkg, conn, "message", src) {
+			if !ct.allows(person, groups) {
+				return driver.ErrForbidden
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("%s/%s: %w", agent, connection, ErrNoWebSource)
+}
+
 // CreateObject starts a business object of an agent with memory: object. The creator becomes its owner.
 func (e *Engine) CreateObject(ctx context.Context, agent, connection, title string, attrs map[string]any, by string) (ObjectView, error) {
 	tx, err := e.pool.Begin(ctx)

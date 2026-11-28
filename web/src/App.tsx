@@ -4,7 +4,7 @@ import { Chat } from "./components/Chat";
 import { CommandPalette, type Action } from "./components/CommandPalette";
 import { TopBar, type View } from "./components/TopBar";
 import { Boat } from "./components/Mascot";
-import { login } from "./lib/api";
+import { ApiError, authConfig, login, tokenLogin, type AuthConfig } from "./lib/api";
 import { boot, counted, draft, newAgent, useDraft } from "./lib/store";
 import { cn } from "./lib/utils";
 
@@ -164,33 +164,98 @@ function Gate() {
         </div>
       </main>
     );
+  if (d.status === "login") return <Login error={d.error} />;
   return (
     <main className="grid flex-1 place-items-center p-4">
       <form
         className="w-full max-w-sm rounded-xl border bg-card p-5 shadow-panel"
         onSubmit={(e) => {
           e.preventDefault();
-          if (d.status === "login") login();
-          else void boot();
+          void boot();
         }}
       >
         <Boat size={36} />
-        {d.status === "login" ? (
-          <>
-            <h1 className="mt-3 text-lg font-semibold">Вход</h1>
-            <p className="mt-1 text-[14px] text-faint">Войди корпоративной учетной записью через Keycloak.</p>
-          </>
-        ) : (
-          <>
-            <h1 className="mt-3 text-lg font-semibold">Ядро не ответило</h1>
-            <p className="mt-1 text-[14px] text-faint [overflow-wrap:anywhere]">{d.error}</p>
-          </>
-        )}
-        {d.status === "login" && d.error && <p className="mt-2 text-[13px] text-destructive">{d.error}</p>}
+        <h1 className="mt-3 text-lg font-semibold">Ядро не ответило</h1>
+        <p className="mt-1 text-[14px] text-faint [overflow-wrap:anywhere]">{d.error}</p>
         <button className="mt-4 w-full rounded-lg bg-primary px-4 py-2 text-[14px] font-semibold text-primary-foreground hover:bg-primary-hover">
-          {d.status === "login" ? "Войти" : "Попробовать еще раз"}
+          Попробовать еще раз
         </button>
       </form>
+    </main>
+  );
+}
+
+// Login offers the provider when the core has one, and the platform's token while it has none (or as
+// a way in for the platform when the provider is down). The token goes to the core once and is not kept.
+function Login({ error }: { error?: string }) {
+  const [cfg, setCfg] = useState<AuthConfig>();
+  const [token, setToken] = useState("");
+  const [tokenOpen, setTokenOpen] = useState(false);
+  const [failed, setFailed] = useState<string>();
+  useEffect(() => {
+    authConfig()
+      .then(setCfg)
+      .catch(() => setCfg({ oidc: false, token: false }));
+  }, []);
+  const showToken = cfg && cfg.token && (!cfg.oidc || tokenOpen);
+  return (
+    <main className="grid flex-1 place-items-center p-4">
+      <div className="w-full max-w-sm rounded-xl border bg-card p-5 shadow-panel">
+        <Boat size={36} />
+        <h1 className="mt-3 text-lg font-semibold">Вход</h1>
+        {cfg && !cfg.oidc && !cfg.token && <p className="mt-1 text-[14px] text-faint">Вход в интерфейс на этой установке выключен.</p>}
+        {error && <p className="mt-2 text-[13px] text-destructive">{error}</p>}
+        {cfg?.oidc && (
+          <>
+            <p className="mt-1 text-[14px] text-faint">Войди корпоративной учетной записью через Keycloak.</p>
+            <button
+              autoFocus
+              onClick={login}
+              className="mt-4 w-full rounded-lg bg-primary px-4 py-2 text-[14px] font-semibold text-primary-foreground hover:bg-primary-hover"
+            >
+              Войти
+            </button>
+          </>
+        )}
+        {cfg?.oidc && cfg.token && !tokenOpen && (
+          <button onClick={() => setTokenOpen(true)} className="mt-3 w-full text-[13px] text-muted-foreground hover:text-foreground">
+            Войти токеном платформы
+          </button>
+        )}
+        {showToken && (
+          <form
+            className="mt-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setFailed(undefined);
+              tokenLogin(token.trim())
+                .then(() => {
+                  setToken("");
+                  return boot();
+                })
+                .catch((err) => setFailed(err instanceof ApiError && err.status === 403 ? "Это не токен платформы" : "Токен не подошел"));
+            }}
+          >
+            <p className="text-[14px] text-faint">Токен API платформы. Он уходит в ядро один раз и в браузере не хранится.</p>
+            <input
+              autoFocus
+              type="password"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              aria-label="Токен платформы"
+              placeholder="Токен"
+              className="mt-3 w-full rounded-lg border bg-surface px-3 py-2 text-[15px] outline-none focus:border-primary"
+            />
+            {failed && <p className="mt-2 text-[13px] text-destructive">{failed}</p>}
+            <button
+              disabled={!token.trim()}
+              className="mt-3 w-full rounded-lg border px-4 py-2 text-[14px] font-semibold hover:bg-surface disabled:opacity-50"
+            >
+              Войти токеном
+            </button>
+          </form>
+        )}
+      </div>
     </main>
   );
 }

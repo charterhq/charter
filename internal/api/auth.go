@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -54,8 +55,10 @@ const (
 	KindSystem = "system"
 )
 
-// OIDC is the login of people. The provider is discovered on first use: the core starts while the
-// provider is down and logs people in once it is back.
+// OIDC is the login of people in the browser. The provider is discovered on first use: the core
+// starts while the provider is down and logs people in once it is back. With Issuer empty only the
+// platform's bearer tokens open a browser session (POST /v1/auth/token): for an installation whose
+// provider client is not there yet.
 type OIDC struct {
 	Issuer, ClientID, ClientSecret string
 	// RedirectURL is the callback as the browser sees it, e.g. https://host/charter/v1/auth/callback;
@@ -73,8 +76,8 @@ type OIDC struct {
 
 // Validate checks the settings without calling the provider.
 func (o *OIDC) Validate() error {
-	if o.Issuer == "" || o.ClientID == "" || o.ClientSecret == "" || o.RedirectURL == "" {
-		return errors.New("OIDC needs the issuer, client id, client secret and redirect URL")
+	if o.Issuer != "" && (o.ClientID == "" || o.ClientSecret == "") {
+		return errors.New("OIDC needs the client id and secret with the issuer")
 	}
 	u, err := url.Parse(o.RedirectURL)
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || !strings.HasSuffix(u.Path, "/v1/auth/callback") {
@@ -102,6 +105,9 @@ func (o *OIDC) init() error {
 	defer o.mu.Unlock()
 	if o.provider != nil {
 		return nil
+	}
+	if o.Issuer == "" {
+		return errors.New("no OIDC provider is configured")
 	}
 	// the provider keeps this context to fetch its keys later: it must outlive the request
 	p, err := oidc.NewProvider(oidc.ClientContext(context.Background(), &http.Client{Timeout: 10 * time.Second}), o.Issuer)
@@ -263,7 +269,8 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		var idToken string
 		_ = s.Pool.QueryRow(r.Context(), `DELETE FROM sessions WHERE id = $1 RETURNING id_token`, sessionID(c.Value)).Scan(&idToken)
 		s.setCookie(w, "", -1)
-		if s.OIDC.logout != "" {
+		// a session of a token has no provider session to end
+		if idToken != "" && s.OIDC.init() == nil && s.OIDC.logout != "" {
 			v := url.Values{"client_id": {s.OIDC.ClientID}, "post_logout_redirect_uri": {s.OIDC.origin() + safeReturn(req.ReturnTo, s.OIDC.home())}}
 			if idToken != "" {
 				v.Set("id_token_hint", idToken)
@@ -304,7 +311,8 @@ func sessionLookup(ctx context.Context, pool *pgxpool.Pool, o *OIDC, cookie stri
 		return Caller{}, err
 	}
 	now := time.Now()
-	if now.Sub(refreshedAt) > GroupsRefresh {
+	// a session of a platform token has no refresh token and no groups to take again
+	if refresh != "" && now.Sub(refreshedAt) > GroupsRefresh {
 		if err := o.init(); err != nil {
 			return Caller{}, err // the provider is down: do not end sessions for that
 		}
@@ -350,4 +358,45 @@ func unsafeMethod(m string) bool {
 // core never answers.
 func (o *OIDC) sameSite(r *http.Request) bool {
 	return r.Header.Get("Origin") == o.origin() && r.Header.Get("X-Charter-Request") == "1"
+}
+
+// authConfig: GET /v1/auth/config → {"oidc", "token"} – which logins the UI offers.
+func (s *Server) authConfig(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"oidc": s.OIDC.Issuer != "", "token": true})
+}
+
+// tokenLogin: POST /v1/auth/token with a bearer token of the platform – opens a browser session named
+// by the token. It lets the platform into the UI before the provider client exists; the token stays
+// out of the page's storage, the session is the same HttpOnly cookie as after an OIDC login.
+func (s *Server) tokenLogin(w http.ResponseWriter, r *http.Request) {
+	if !s.OIDC.sameSite(r) {
+		writeErrCode(w, http.StatusForbidden, "cross_site", "a login must come from the UI")
+		return
+	}
+	tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	name := ""
+	for t, n := range s.Tokens {
+		if subtle.ConstantTimeCompare([]byte(t), []byte(tok)) == 1 {
+			name = n
+		}
+	}
+	if name == "" {
+		s.Log.Warn("unknown token at token login", "remote", r.RemoteAddr, "forwarded_for", r.Header.Get("X-Forwarded-For"))
+		writeErr(w, http.StatusUnauthorized, "unknown token")
+		return
+	}
+	if !s.Platform[name] {
+		writeErrCode(w, http.StatusForbidden, "forbidden", "only platform tokens open a browser session")
+		return
+	}
+	cookie := random()
+	if _, err := s.Pool.Exec(r.Context(), `INSERT INTO sessions (id, person, subject, expires_at) VALUES ($1, $2, $3, $4)`,
+		sessionID(cookie), name, "token:"+name, time.Now().Add(SessionTTL)); err != nil {
+		s.Log.Error("token session", "err", err)
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	s.Log.Info("login with a platform token", "person", name)
+	s.setCookie(w, cookie, SessionTTL)
+	writeJSON(w, http.StatusOK, map[string]any{"person": name})
 }

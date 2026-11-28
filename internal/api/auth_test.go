@@ -359,7 +359,7 @@ func TestTriggerGroups(t *testing.T) {
 	e := withOIDC(t, base, p)
 	jane, john := login(t, e, p, "jane.doe", "/"), login(t, e, p, "john.roe", "/")
 
-	say := func(b *browser) int {
+	say := func(b *browser) int { // jane: create, open a conversation, talk
 		t.Helper()
 		code, obj := b.do(t, "POST", "/v1/agents/builder/objects", map[string]any{"connection": "platform"}, true)
 		if code != http.StatusCreated {
@@ -377,7 +377,22 @@ func TestTriggerGroups(t *testing.T) {
 	if code := say(jane); code != http.StatusAccepted {
 		t.Fatalf("member of the group: %d", code)
 	}
-	if code := say(john); code != http.StatusForbidden {
+	// outside the group a person cannot even start a draft
+	if code, out := john.do(t, "POST", "/v1/agents/builder/objects", map[string]any{"connection": "platform"}, true); code != http.StatusForbidden {
+		t.Fatalf("create outside the group: %d %v", code, out)
+	}
+	// a draft john got a role on still refuses his messages
+	code, obj := jane.do(t, "POST", "/v1/agents/builder/objects", map[string]any{"connection": "platform"}, true)
+	if code != http.StatusCreated {
+		t.Fatalf("create: %d", code)
+	}
+	id := obj["id"].(string)
+	if code, out := jane.do(t, "PUT", "/v1/objects/"+id+"/members", []map[string]any{{"person": "jane.doe", "role": "owner"}, {"person": "john.roe", "role": "member"}}, true); code != http.StatusOK {
+		t.Fatalf("members: %d %v", code, out)
+	}
+	_, conv := jane.do(t, "POST", "/v1/objects/"+id+"/conversations", map[string]any{}, true)
+	cid := conv["conversation"].(map[string]any)["id"].(string)
+	if code, _ := john.do(t, "POST", "/v1/objects/"+id+"/conversations/"+cid+"/messages", map[string]any{"message_id": "m1", "text": "hi"}, true); code != http.StatusForbidden {
 		t.Fatalf("outside the group: %d", code)
 	}
 }
@@ -425,5 +440,69 @@ func TestResolveAsPerson(t *testing.T) {
 	}
 	if status := waitStatus(t, e, runID); status != run.StatusOK {
 		t.Fatalf("status %s", status)
+	}
+}
+
+func TestTokenLogin(t *testing.T) {
+	base, _ := setupObjects(t)
+	// no provider yet: the platform logs in to the UI with its token
+	var h http.Handler
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { h.ServeHTTP(w, r) }))
+	t.Cleanup(srv.Close)
+	s := &api.Server{Pool: base.s.Pool, Engine: base.s.Engine, Tokens: base.s.Tokens, Platform: base.s.Platform, Log: slog.Default(),
+		OIDC: &api.OIDC{RedirectURL: srv.URL + "/v1/auth/callback"}}
+	if err := s.OIDC.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	h = s.Handler()
+	t.Cleanup(s.StopStreams)
+	e := base
+	e.srv, e.s = srv, s
+
+	if code, out := call(t, e, "GET", "/v1/auth/config", "", nil); code != http.StatusOK || out["oidc"] != false || out["token"] != true {
+		t.Fatalf("config: %d %v", code, out)
+	}
+	if resp, _ := http.Get(srv.URL + "/v1/auth/login"); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("oidc login without a provider: %d", resp.StatusCode)
+	}
+	jar, _ := cookiejar.New(nil)
+	b := &browser{c: &http.Client{Jar: jar}, e: e}
+	tokenLogin := func(tok string, ui bool) int {
+		req, _ := http.NewRequest("POST", srv.URL+"/v1/auth/token", nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		if ui {
+			req.Header.Set("Origin", srv.URL)
+			req.Header.Set("X-Charter-Request", "1")
+		}
+		resp, err := b.c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+	if code := tokenLogin("platform-token", false); code != http.StatusForbidden {
+		t.Fatalf("cross-site token login: %d", code)
+	}
+	if code := tokenLogin("wrong-token-0123456789", true); code != http.StatusUnauthorized {
+		t.Fatalf("unknown token: %d", code)
+	}
+	if code := tokenLogin("alice-token", true); code != http.StatusForbidden {
+		t.Fatalf("not a platform token: %d", code)
+	}
+	if code := tokenLogin("platform-token", true); code != http.StatusOK {
+		t.Fatalf("platform token: %d", code)
+	}
+	if _, err := e.pool.Exec(context.Background(), `UPDATE sessions SET refreshed_at = now() - interval '1 hour'`); err != nil {
+		t.Fatal(err)
+	}
+	if code, me := b.do(t, "GET", "/v1/me", nil, false); code != http.StatusOK || me["person"] != "ops" || me["kind"] != "person" || me["platform"] != true {
+		t.Fatalf("me: %d %v", code, me)
+	}
+	if code, out := b.do(t, "POST", "/v1/auth/logout", nil, true); code != http.StatusOK || out["logout_url"] != nil {
+		t.Fatalf("logout: %d %v", code, out)
+	}
+	if code, _ := b.do(t, "GET", "/v1/me", nil, false); code != http.StatusUnauthorized {
+		t.Fatalf("after logout: %d", code)
 	}
 }

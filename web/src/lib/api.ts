@@ -10,9 +10,33 @@ export const BUILDER = {
 // The API sits next to the UI: /charter/ui/ → /charter/v1/, /ui/ → /v1/.
 const BASE = new URL("../v1/", new URL(".", location.href)).pathname.replace(/\/$/, "");
 
+// The UI before the provider login kept an API token in localStorage: drop it.
+try {
+  localStorage.removeItem("charter.token");
+} catch {
+  // storage is off: nothing was kept either
+}
+
 // login sends the browser to the provider; it comes back to the page it left.
 export function login() {
   location.href = `${BASE}/auth/login?return_to=${encodeURIComponent(location.pathname + location.search)}`;
+}
+
+export type AuthConfig = { oidc: boolean; token: boolean };
+
+// authConfig says which logins the core offers.
+export async function authConfig(): Promise<AuthConfig> {
+  return api<AuthConfig>("GET", "/auth/config");
+}
+
+// tokenLogin trades a platform token for a session cookie; the token is not kept anywhere.
+export async function tokenLogin(token: string): Promise<void> {
+  const res = await fetch(`${BASE}/auth/token`, {
+    method: "POST",
+    headers: { "X-Charter-Request": "1", Authorization: `Bearer ${token}` },
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) throw new ApiError(res.status, String(data.code ?? "internal"), String(data.error ?? res.statusText), data);
 }
 
 // logout ends the session in the core, then at the provider.

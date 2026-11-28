@@ -104,7 +104,14 @@ func (s *Server) createObject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "connection is required")
 		return
 	}
-	v, err := s.Engine.CreateObject(r.Context(), chi.URLParam(r, "agent"), req.Connection, req.Title, req.Attrs, caller(r.Context()))
+	c := who(r.Context())
+	if c.Kind == KindPerson && !s.platform(r.Context()) {
+		if err := s.Engine.MayTalk(r.Context(), chi.URLParam(r, "agent"), req.Connection, c.Name, c.Groups); err != nil {
+			s.objectErr(w, err)
+			return
+		}
+	}
+	v, err := s.Engine.CreateObject(r.Context(), chi.URLParam(r, "agent"), req.Connection, req.Title, req.Attrs, c.Name)
 	if err != nil {
 		s.objectErr(w, err)
 		return
