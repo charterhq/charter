@@ -5,13 +5,16 @@ import {
   MessagePrimitive,
   ThreadPrimitive,
   WebSpeechDictationAdapter,
+  useAui,
+  useAuiState,
   useExternalStoreRuntime,
   type ThreadMessageLike,
 } from "@assistant-ui/react";
-import { ArrowRight, ArrowUp, ChevronDown, Mic, NotebookPen, Plus, Square } from "lucide-react";
+import { ArrowRight, ChevronDown, Mic, NotebookPen, Plus, Square } from "lucide-react";
 import { useMemo } from "react";
 import { DropdownMenu } from "./arc/dropdown-menu/dropdown-menu";
 import { AgentRun, type RunStep } from "./blocks/AgentRun";
+import { AiComposer } from "./blocks/AiComposer";
 import { ToolCall, ToolCallGroup } from "./blocks/ToolCall";
 import { Boat } from "./Mascot";
 import { locale, useT, type Messages } from "@/i18n";
@@ -139,7 +142,7 @@ function RoomThread({ room }: { room: Room }) {
           </ThreadPrimitive.Messages>
           {room.running && <LiveRun run={room.run} />}
         </ThreadPrimitive.Viewport>
-        <Composer />
+        <Composer running={room.running} />
       </ThreadPrimitive.Root>
     </AssistantRuntimeProvider>
   );
@@ -173,35 +176,40 @@ function LiveRun({ run }: { run?: RoomRun }) {
 }
 
 const iconButton =
-  "grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-card hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent";
+  "grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-surface hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent";
 
+// The chat's prompt box is the composer block; the text lives in the assistant-ui composer, so the
+// runtime sends it and dictation writes into it. Stop comes when the core can cancel a run.
 // Attachments come back when the core keeps files of an object; dictation stays in the browser.
-function Composer() {
+function Composer({ running }: { running: boolean }) {
   const t = useT();
+  const aui = useAui();
+  const text = useAuiState((s) => s.composer.text);
   return (
-    <ComposerPrimitive.Root className="m-3 rounded-xl border bg-surface focus-within:border-primary">
-      <ComposerPrimitive.Input
-        rows={1}
-        aria-label={t.chat.input}
+    <div className="m-3">
+      <AiComposer
+        value={text}
+        onChange={(v) => aui.composer().setText(v)}
+        onSubmit={() => aui.composer().send()}
+        label={t.chat.input}
         placeholder={t.chat.inputPlaceholder}
-        className="mx-1.5 mt-1.5 mb-1 max-h-48 min-h-9 w-[calc(100%-0.75rem)] resize-none bg-transparent px-1.5 pt-1 text-[15px] outline-none placeholder:text-faint"
+        running={running}
+        trailing={
+          <>
+            <AuiIf condition={(s) => s.composer.dictation == null}>
+              <ComposerPrimitive.Dictate className={iconButton} aria-label={t.chat.dictate} title={t.chat.dictateHint}>
+                <Mic size={16} aria-hidden />
+              </ComposerPrimitive.Dictate>
+            </AuiIf>
+            <AuiIf condition={(s) => s.composer.dictation != null}>
+              <ComposerPrimitive.StopDictation className={cn(iconButton, "text-destructive")} title={t.chat.stopDictation} aria-label={t.chat.stopDictation}>
+                <Square size={13} className="animate-pulse fill-current" aria-hidden />
+              </ComposerPrimitive.StopDictation>
+            </AuiIf>
+          </>
+        }
       />
-      <div className="flex items-center gap-0.5 p-1.5 pt-0">
-        <AuiIf condition={(s) => s.composer.dictation == null}>
-          <ComposerPrimitive.Dictate className={iconButton} aria-label={t.chat.dictate} title={t.chat.dictateHint}>
-            <Mic size={15} />
-          </ComposerPrimitive.Dictate>
-        </AuiIf>
-        <AuiIf condition={(s) => s.composer.dictation != null}>
-          <ComposerPrimitive.StopDictation className={cn(iconButton, "text-destructive")} title={t.chat.stopDictation} aria-label={t.chat.stopDictation}>
-            <Square size={13} className="animate-pulse fill-current" />
-          </ComposerPrimitive.StopDictation>
-        </AuiIf>
-        <ComposerPrimitive.Send aria-label={t.chat.send} className="ml-auto grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground hover:bg-primary-hover disabled:opacity-40">
-          <ArrowUp size={15} />
-        </ComposerPrimitive.Send>
-      </div>
-    </ComposerPrimitive.Root>
+    </div>
   );
 }
 
