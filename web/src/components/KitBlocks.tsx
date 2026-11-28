@@ -5,7 +5,7 @@ import { AgentPlan, type PlanStep } from "./blocks/AgentPlan";
 import { AgentRun, RunOutput, type RunState, type RunStep } from "./blocks/AgentRun";
 import { AiAnswer, Claim, Cite, type AnswerSource } from "./blocks/AiAnswer";
 import { AiComposer, ToolToggle } from "./blocks/AiComposer";
-import { ResearchRun, type ResearchQuery } from "./blocks/ResearchRun";
+import { ResearchRun, type ResearchQuery, type ResearchSource } from "./blocks/ResearchRun";
 import { ToolCall, ToolCallGroup } from "./blocks/ToolCall";
 import { Boat } from "./Mascot";
 
@@ -49,9 +49,15 @@ const SOURCES: AnswerSource[] = [
 ];
 
 const QUERIES: Omit<ResearchQuery, "status">[] = [
-  { id: "q1", text: "runbook 5xx api-gateway", results: 4, mark: <FileText size={11} /> },
-  { id: "q2", text: "инциденты api-gateway за месяц", results: 7, mark: <GitBranch size={11} /> },
-  { id: "q3", text: "панели ошибок api-gateway", results: 2, mark: <Globe size={11} /> },
+  { id: "q1", text: "runbook 5xx api-gateway", results: 4, marks: [<FileText key="w" size={12} />, <Globe key="g" size={12} />] },
+  { id: "q2", text: "инциденты api-gateway за месяц", results: 7, marks: [<GitBranch key="j" size={12} />] },
+  { id: "q3", text: "панели ошибок api-gateway", results: 2, marks: [<Globe key="g" size={12} />, <Search key="s" size={12} />] },
+];
+
+const READING: Omit<ResearchSource, "progress">[] = [
+  { ...SOURCES[0], year: "2025", snippet: "Сначала проверить срок сертификата на балансировщике, потом логи за 15 минут.", href: "https://wiki.example.com/runbooks/api-gateway-5xx" },
+  { ...SOURCES[1], year: "2026", snippet: "14.10 истек сертификат на балансировщике, 5xx шли 40 минут.", href: "https://jira.example.com/browse/INC-1410" },
+  { ...SOURCES[2], year: "2026", snippet: "Рост 5xx совпал с выкладкой в 12:04.", href: "https://grafana.example.com/d/api-gateway" },
 ];
 
 export function KitBlocks({ Section }: { Section: (p: { title: string; children: ReactNode }) => ReactNode }) {
@@ -200,9 +206,9 @@ export function KitBlocks({ Section }: { Section: (p: { title: string; children:
           <ResearchRun
             question="Почему api-gateway отдает 5xx после выкладки?"
             running={researching}
-            elapsed={researching ? undefined : "3s"}
+            elapsed={researching ? `${qAt}s` : "4s"}
             queries={QUERIES.slice(0, Math.min(qAt + 1, QUERIES.length)).map((q, i) => ({ ...q, status: i < qAt ? "done" : "running" }))}
-            sources={SOURCES.map((s, i) => ({ ...s, read: i < qAt }))}
+            sources={READING.slice(0, Math.min(qAt + 1, READING.length)).map((s, i) => ({ ...s, progress: i < qAt ? 1 : 0.35 }))}
             answer={researching ? undefined : <p>Похоже на истекший сертификат: так уже было 14.10, runbook советует сначала проверить его срок.</p>}
             onStop={() => undefined}
           />
