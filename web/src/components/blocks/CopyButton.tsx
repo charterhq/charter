@@ -1,10 +1,11 @@
 import { Check, Copy } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 // CopyButton puts text on the clipboard and shows a check for a moment.
-export function CopyButton({ text, label, small, className }: { text: string; label?: string; small?: boolean; className?: string }) {
+// icon replaces the copy mark, for a button that copies a link.
+export function CopyButton({ text, label, small, icon, className }: { text: string; label?: string; small?: boolean; icon?: ReactNode; className?: string }) {
   const t = useT();
   const [done, setDone] = useState(false);
   useEffect(() => {
@@ -25,7 +26,7 @@ export function CopyButton({ text, label, small, className }: { text: string; la
         className,
       )}
     >
-      {done ? <Check size={small ? 13 : 14} className="text-success" aria-hidden /> : <Copy size={small ? 13 : 14} aria-hidden />}
+      {done ? <Check size={small ? 13 : 14} className="text-success" aria-hidden /> : (icon ?? <Copy size={small ? 13 : 14} aria-hidden />)}
     </button>
   );
 }
