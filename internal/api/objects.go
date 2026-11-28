@@ -68,6 +68,24 @@ func (s *Server) visible(w http.ResponseWriter, r *http.Request) (string, bool) 
 	return id, true
 }
 
+// mayTalkOn says whether a person may talk about the object: a role on it is not enough when the web
+// source of the agent names users or groups. The platform and systems pass.
+func (s *Server) mayTalkOn(w http.ResponseWriter, r *http.Request, id string) bool {
+	c := who(r.Context())
+	if c.Kind != KindPerson || s.platform(r.Context()) {
+		return true
+	}
+	v, err := s.Engine.GetObject(r.Context(), id)
+	if err == nil {
+		err = s.Engine.MayTalk(r.Context(), v.Agent, v.Connection, c.Name, c.Groups)
+	}
+	if err != nil {
+		s.objectErr(w, err)
+		return false
+	}
+	return true
+}
+
 // owner says whether the caller may change roles: an owner of the object, or the platform.
 func (s *Server) owner(r *http.Request, v run.ObjectView) bool {
 	who := caller(r.Context())
@@ -277,6 +295,9 @@ func (s *Server) openConversation(w http.ResponseWriter, r *http.Request) {
 		Title string `json:"title"`
 	}
 	if r.ContentLength != 0 && !readJSON(w, r, &req) {
+		return
+	}
+	if !s.mayTalkOn(w, r, id) {
 		return
 	}
 	c, m, err := s.Engine.OpenConversation(r.Context(), id, req.Title, caller(r.Context()))

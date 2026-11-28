@@ -77,6 +77,7 @@ func (s *Server) Handler() http.Handler {
 	if s.OIDC != nil {
 		r.Get("/v1/auth/config", s.authConfig)
 		r.Post("/v1/auth/token", s.tokenLogin)
+		r.Post("/v1/auth/logout", s.logout)
 		if s.OIDC.Issuer != "" {
 			r.Get("/v1/auth/login", s.login)
 			r.Get("/v1/auth/callback", s.callback)
@@ -99,7 +100,6 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/v1/agents/{name}/suspend", s.setSwitch(true))
 			r.Post("/v1/agents/{name}/resume", s.setSwitch(false))
 		})
-		r.Post("/v1/auth/logout", s.logout)
 		r.Get("/v1/agents", s.listAgents)
 		r.Post("/v1/waits/{id}/resolve", s.resolve)
 

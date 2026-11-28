@@ -46,6 +46,12 @@ export async function logout() {
   else location.reload();
 }
 
+// sessionEnded is called when the core says the session is gone (401): the store shows the login.
+let sessionEnded = () => {};
+export function onSessionEnd(f: () => void) {
+  sessionEnded = f;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -71,6 +77,7 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (res.status === 401 && path !== "/me") sessionEnded();
   if (!res.ok) throw new ApiError(res.status, String(data.code ?? "internal"), String(data.error ?? res.statusText), data);
   return data as T;
 }
@@ -154,6 +161,10 @@ export function subscribe(
           headers: { ...headers(false), Accept: "text/event-stream" },
           signal: ctl.signal,
         });
+        if (res.status === 401) {
+          sessionEnded();
+          return;
+        }
         if (!res.ok || !res.body) throw new Error(`events: ${res.status}`);
         on.status?.(true);
         delay = 500;
@@ -175,7 +186,9 @@ export function subscribe(
               else if (line.startsWith("event: ")) type = line.slice(7);
               else if (line.startsWith("data: ")) data += line.slice(6);
             }
-            if (type === "reset") {
+            // reset: events were lost; end: the core closed the stream because access ended –
+            // reading the snapshot again shows the login or the error
+            if (type === "reset" || type === "end") {
               on.reset();
               return;
             }

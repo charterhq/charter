@@ -46,7 +46,7 @@ services:
     volumes:
       - ./keycloak/charter-realm.json:/opt/keycloak/data/import/charter-realm.json:ro
     ports:
-      - "58080:58080"
+      - "127.0.0.1:58080:58080"
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && printf 'GET /health/ready HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"]
       interval: 3s

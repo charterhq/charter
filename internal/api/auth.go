@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -29,6 +30,9 @@ import (
 
 const (
 	sessionCookie = "charter_session"
+	// loginCookie binds a login in progress to the browser that started it: a callback link with
+	// someone else's state does not log a victim into the attacker's account
+	loginCookie = "charter_login"
 	// SessionTTL is how long a session lives without use; every use moves it on.
 	SessionTTL = 8 * time.Hour
 	// GroupsRefresh is how often a session takes the person's groups from the provider again.
@@ -68,6 +72,7 @@ type OIDC struct {
 	CookiePath string
 
 	mu       sync.Mutex
+	client   *http.Client
 	provider *oidc.Provider
 	verifier *oidc.IDTokenVerifier
 	conf     oauth2.Config
@@ -109,8 +114,9 @@ func (o *OIDC) init() error {
 	if o.Issuer == "" {
 		return errors.New("no OIDC provider is configured")
 	}
+	o.client = &http.Client{Timeout: 10 * time.Second}
 	// the provider keeps this context to fetch its keys later: it must outlive the request
-	p, err := oidc.NewProvider(oidc.ClientContext(context.Background(), &http.Client{Timeout: 10 * time.Second}), o.Issuer)
+	p, err := oidc.NewProvider(oidc.ClientContext(context.Background(), o.client), o.Issuer)
 	if err != nil {
 		return fmt.Errorf("OIDC provider %s: %w", o.Issuer, err)
 	}
@@ -166,6 +172,11 @@ func (o *OIDC) idToken(ctx context.Context, tok *oauth2.Token) (claims, string, 
 	return c, raw, nil
 }
 
+// ctx gives the token calls the client with a timeout: a provider that hangs does not hang requests.
+func (o *OIDC) ctx(ctx context.Context) context.Context {
+	return context.WithValue(ctx, oauth2.HTTPClient, o.client)
+}
+
 func random() string {
 	b := make([]byte, 32)
 	_, _ = rand.Read(b)
@@ -178,8 +189,19 @@ func sessionID(cookie string) string {
 }
 
 // safeReturn keeps return_to a path on this site: an open redirect would hand the login to anyone.
+// Browsers drop tabs and newlines from a URL and read a backslash as a slash, so "/<tab>/evil" and
+// "/\evil" are "//evil" to them.
 func safeReturn(p, home string) string {
-	if !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "//") || strings.ContainsAny(p, "\\\r\n") {
+	if !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "//") || strings.ContainsRune(p, '\\') {
+		return home
+	}
+	for _, r := range p {
+		if r < 0x20 || r == 0x7f {
+			return home
+		}
+	}
+	u, err := url.Parse(p)
+	if err != nil || u.Scheme != "" || u.Host != "" || strings.HasPrefix(u.Path, "//") {
 		return home
 	}
 	return p
@@ -201,6 +223,8 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	http.SetCookie(w, &http.Cookie{Name: loginCookie, Value: state, Path: o.CookiePath + "v1/auth/", MaxAge: int(loginTTL.Seconds()),
+		HttpOnly: true, Secure: o.secure(), SameSite: http.SameSiteLaxMode})
 	http.Redirect(w, r, o.conf.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)), http.StatusFound)
 }
 
@@ -212,9 +236,15 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		writeErrCode(w, http.StatusServiceUnavailable, "unavailable", "login provider unavailable")
 		return
 	}
+	bound, err := r.Cookie(loginCookie)
+	if err != nil || subtle.ConstantTimeCompare([]byte(bound.Value), []byte(q.Get("state"))) != 1 {
+		writeErrCode(w, http.StatusBadRequest, "login_expired", "this browser did not start the login, start again")
+		return
+	}
+	http.SetCookie(w, &http.Cookie{Name: loginCookie, Path: o.CookiePath + "v1/auth/", MaxAge: -1, HttpOnly: true, Secure: o.secure()})
 	var verifier, nonce, back string
 	// a state is used once and only within loginTTL
-	err := s.Pool.QueryRow(r.Context(), `DELETE FROM auth_logins WHERE state = $1 AND created_at > $2
+	err = s.Pool.QueryRow(r.Context(), `DELETE FROM auth_logins WHERE state = $1 AND created_at > $2
 		RETURNING verifier, nonce, return_to`, q.Get("state"), time.Now().Add(-loginTTL)).Scan(&verifier, &nonce, &back)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeErrCode(w, http.StatusBadRequest, "login_expired", "the login is unknown or expired, start again")
@@ -229,7 +259,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		writeErrCode(w, http.StatusForbidden, "login_refused", "the provider refused the login: "+e)
 		return
 	}
-	tok, err := o.conf.Exchange(r.Context(), q.Get("code"), oauth2.VerifierOption(verifier))
+	tok, err := o.conf.Exchange(o.ctx(r.Context()), q.Get("code"), oauth2.VerifierOption(verifier))
 	if err != nil {
 		s.Log.Warn("oidc exchange", "err", err)
 		writeErrCode(w, http.StatusForbidden, "login_refused", "the provider did not accept the login")
@@ -243,6 +273,17 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		s.Log.Warn("oidc id token", "err", err)
 		writeErrCode(w, http.StatusForbidden, "login_refused", "the ID token is not valid")
 		return
+	}
+	for _, name := range s.Tokens {
+		if name == c.Username { // a person named like a token would get the token's roles and platform
+			s.Log.Warn("oidc login refused: the person is named like an API token", "person", c.Username)
+			writeErrCode(w, http.StatusForbidden, "login_refused", "this login is taken by a system of the core")
+			return
+		}
+	}
+	// a session of this browser before the login ends: one browser, one person
+	if old, err := r.Cookie(sessionCookie); err == nil {
+		_, _ = s.Pool.Exec(r.Context(), `DELETE FROM sessions WHERE id = $1`, sessionID(old.Value))
 	}
 	cookie := random()
 	if _, err := s.Pool.Exec(r.Context(), `INSERT INTO sessions (id, person, subject, name, email, groups, refresh_token, id_token, expires_at)
@@ -258,25 +299,31 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 }
 
 // logout: POST /v1/auth/logout {"return_to"} → {"logout_url"} – ends the session here; logout_url
-// ends it at the provider too and comes back to return_to, the UI goes there.
+// ends it at the provider too and comes back to return_to, the UI goes there. It works without a
+// live session as well: a session that ended here may still have one at the provider.
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+	if !s.OIDC.sameSite(r) {
+		writeErrCode(w, http.StatusForbidden, "cross_site", "a logout must come from the UI")
+		return
+	}
 	var req struct {
 		ReturnTo string `json:"return_to"`
 	}
 	_ = json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&req)
+	var idToken, subject string
+	if c, err := r.Cookie(sessionCookie); err == nil {
+		_ = s.Pool.QueryRow(r.Context(), `DELETE FROM sessions WHERE id = $1 RETURNING id_token, subject`, sessionID(c.Value)).
+			Scan(&idToken, &subject)
+	}
+	s.setCookie(w, "", -1)
 	out := map[string]any{}
-	if c, err := r.Cookie(sessionCookie); err == nil && s.OIDC != nil {
-		var idToken string
-		_ = s.Pool.QueryRow(r.Context(), `DELETE FROM sessions WHERE id = $1 RETURNING id_token`, sessionID(c.Value)).Scan(&idToken)
-		s.setCookie(w, "", -1)
-		// a session of a token has no provider session to end
-		if idToken != "" && s.OIDC.init() == nil && s.OIDC.logout != "" {
-			v := url.Values{"client_id": {s.OIDC.ClientID}, "post_logout_redirect_uri": {s.OIDC.origin() + safeReturn(req.ReturnTo, s.OIDC.home())}}
-			if idToken != "" {
-				v.Set("id_token_hint", idToken)
-			}
-			out["logout_url"] = s.OIDC.logout + "?" + v.Encode()
+	// a session of a platform token has no provider session to end
+	if !strings.HasPrefix(subject, "token:") && s.OIDC.Issuer != "" && s.OIDC.init() == nil && s.OIDC.logout != "" {
+		v := url.Values{"client_id": {s.OIDC.ClientID}, "post_logout_redirect_uri": {s.OIDC.origin() + safeReturn(req.ReturnTo, s.OIDC.home())}}
+		if idToken != "" {
+			v.Set("id_token_hint", idToken)
 		}
+		out["logout_url"] = s.OIDC.logout + "?" + v.Encode()
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -290,20 +337,21 @@ func (s *Server) setCookie(w http.ResponseWriter, value string, ttl time.Duratio
 var errNoSession = errors.New("no session")
 
 // session finds the person of a session cookie. Every GroupsRefresh it takes the groups from the
-// provider again by the refresh token; a refused refresh ends the session (the person left the
-// group, was blocked or logged out at the provider).
+// provider again by the refresh token. A refusal (invalid_grant: the person was blocked, removed or
+// logged out at the provider) or a token for someone else ends the session; a provider that is down
+// or answers with an error leaves the session on its last groups and is asked again next time.
 func (s *Server) session(w http.ResponseWriter, r *http.Request, cookie string) (Caller, error) {
-	return sessionLookup(r.Context(), s.Pool, s.OIDC, cookie, func(ttl time.Duration) { s.setCookie(w, cookie, ttl) })
+	return sessionLookup(r.Context(), s.Pool, s.OIDC, s.Log, cookie, func(ttl time.Duration) { s.setCookie(w, cookie, ttl) })
 }
 
-func sessionLookup(ctx context.Context, pool *pgxpool.Pool, o *OIDC, cookie string, touched func(time.Duration)) (Caller, error) {
+func sessionLookup(ctx context.Context, pool *pgxpool.Pool, o *OIDC, log *slog.Logger, cookie string, touched func(time.Duration)) (Caller, error) {
 	id := sessionID(cookie)
 	c := Caller{Kind: KindPerson}
-	var refresh string
+	var subject, refresh string
 	var refreshedAt, seenAt time.Time
-	err := pool.QueryRow(ctx, `SELECT person, name, email, groups, refresh_token, refreshed_at, last_seen_at
+	err := pool.QueryRow(ctx, `SELECT person, subject, name, email, groups, refresh_token, refreshed_at, last_seen_at
 		FROM sessions WHERE id = $1 AND expires_at > now()`, id).
-		Scan(&c.Name, &c.FullName, &c.Email, &c.Groups, &refresh, &refreshedAt, &seenAt)
+		Scan(&c.Name, &subject, &c.FullName, &c.Email, &c.Groups, &refresh, &refreshedAt, &seenAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Caller{}, errNoSession
 	}
@@ -313,29 +361,12 @@ func sessionLookup(ctx context.Context, pool *pgxpool.Pool, o *OIDC, cookie stri
 	now := time.Now()
 	// a session of a platform token has no refresh token and no groups to take again
 	if refresh != "" && now.Sub(refreshedAt) > GroupsRefresh {
-		if err := o.init(); err != nil {
-			return Caller{}, err // the provider is down: do not end sessions for that
-		}
-		tok, err := o.conf.TokenSource(ctx, &oauth2.Token{RefreshToken: refresh}).Token()
-		var cl claims
-		var raw string
-		if err == nil {
-			cl, raw, err = o.idToken(ctx, tok)
-		}
-		if err == nil && cl.Username != c.Name {
-			err = fmt.Errorf("the provider names %q, the session %q", cl.Username, c.Name)
-		}
-		if err != nil {
-			_, _ = pool.Exec(ctx, `DELETE FROM sessions WHERE id = $1`, id)
+		ended, err := refreshSession(ctx, pool, o, id, subject, &c)
+		if ended {
 			return Caller{}, errNoSession
 		}
-		c.FullName, c.Email, c.Groups = cl.Name, cl.Email, cl.groups()
-		if tok.RefreshToken != "" {
-			refresh = tok.RefreshToken
-		}
-		if _, err := pool.Exec(ctx, `UPDATE sessions SET name = $2, email = $3, groups = $4, refresh_token = $5, id_token = $6,
-			refreshed_at = now() WHERE id = $1`, id, c.FullName, c.Email, c.Groups, refresh, raw); err != nil {
-			return Caller{}, err
+		if err != nil {
+			log.Warn("groups refresh failed, the session keeps its last groups", "person", c.Name, "err", err)
 		}
 	}
 	if now.Sub(seenAt) > touchEvery {
@@ -346,6 +377,66 @@ func sessionLookup(ctx context.Context, pool *pgxpool.Pool, o *OIDC, cookie stri
 		touched(SessionTTL)
 	}
 	return c, nil
+}
+
+// refreshSession takes the groups again under a row lock: requests of one session at once (the
+// event stream and a call, several replicas) spend the refresh token once, the others read the result.
+func refreshSession(ctx context.Context, pool *pgxpool.Pool, o *OIDC, id, subject string, c *Caller) (ended bool, err error) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var refresh string
+	var refreshedAt time.Time
+	err = tx.QueryRow(ctx, `SELECT name, email, groups, refresh_token, refreshed_at FROM sessions WHERE id = $1 FOR UPDATE`, id).
+		Scan(&c.FullName, &c.Email, &c.Groups, &refresh, &refreshedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if time.Since(refreshedAt) <= GroupsRefresh {
+		return false, nil // another request has just refreshed
+	}
+	if err := o.init(); err != nil {
+		return false, err
+	}
+	tok, err := o.conf.TokenSource(o.ctx(ctx), &oauth2.Token{RefreshToken: refresh}).Token()
+	if err != nil {
+		var re *oauth2.RetrieveError
+		// invalid_grant (400) is the provider's no; invalid_client (401) is the core's own misconfiguration
+		// and must not log everyone out
+		if errors.As(err, &re) && (re.ErrorCode == "invalid_grant" || re.ErrorCode == "" && re.Response != nil && re.Response.StatusCode == http.StatusBadRequest) {
+			return true, endSession(ctx, tx, id)
+		}
+		return false, err
+	}
+	cl, raw, err := o.idToken(ctx, tok)
+	if err == nil && (cl.Subject != subject || cl.Username != c.Name) {
+		err = fmt.Errorf("the provider names %q (%s), the session %q (%s)", cl.Username, cl.Subject, c.Name, subject)
+	}
+	if err != nil {
+		return true, endSession(ctx, tx, id)
+	}
+	c.FullName, c.Email, c.Groups = cl.Name, cl.Email, cl.groups()
+	if tok.RefreshToken != "" {
+		refresh = tok.RefreshToken
+	}
+	if _, err := tx.Exec(ctx, `UPDATE sessions SET name = $2, email = $3, groups = $4, refresh_token = $5, id_token = $6,
+		refreshed_at = now() WHERE id = $1`, id, c.FullName, c.Email, c.Groups, refresh, raw); err != nil {
+		return false, err
+	}
+	return false, tx.Commit(ctx)
+}
+
+// endSession deletes a session in the transaction that holds its row.
+func endSession(ctx context.Context, tx pgx.Tx, id string) error {
+	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE id = $1`, id); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // unsafeMethod is a request that changes something: a cookie request of that kind must come from the UI.

@@ -3,6 +3,7 @@ import {
   ApiError,
   BUILDER,
   api,
+  onSessionEnd,
   subscribe,
   type Conversation,
   type Field,
@@ -179,6 +180,12 @@ async function load(id: string) {
   if (!d.rooms.length) await openRoom();
   else await selectRoom(d.rooms.some((r) => r.id === d.room) ? d.room : d.rooms[0].id);
 }
+
+onSessionEnd(() => {
+  unsubscribe?.();
+  unsubscribe = undefined;
+  draft.set({ status: "login", error: "Сессия закончилась, войди еще раз" });
+});
 
 function fail(e: unknown) {
   if (e instanceof ApiError && e.status === 401) {

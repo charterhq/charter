@@ -86,6 +86,7 @@ func newIDP(t *testing.T) *idp {
 			delete(p.codes, r.PostForm.Get("code"))
 			sum := sha256.Sum256([]byte(r.PostForm.Get("code_verifier")))
 			if !ok || base64.RawURLEncoding.EncodeToString(sum[:]) != g.challenge {
+				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusBadRequest)
 				_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
 				return
@@ -93,6 +94,7 @@ func newIDP(t *testing.T) *idp {
 			user, nonce = g.user, g.nonce
 		case "refresh_token":
 			if p.refuse {
+				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusBadRequest)
 				_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
 				return
@@ -272,14 +274,14 @@ func TestOIDCLoginChecks(t *testing.T) {
 	e := withOIDC(t, base, p)
 
 	// return_to stays on this site
-	for _, back := range []string{"//evil.example/x", "https://evil.example/", `/\evil.example`} {
+	for _, back := range []string{"//evil.example/x", "https://evil.example/", `/\evil.example`, "/\t/evil.example", "/\n/evil.example", "/ui/\x7f"} {
 		b := login(t, e, p, "jane.doe", back)
 		if last := b.hop[len(b.hop)-1]; last != e.srv.URL+"/ui/" {
 			t.Fatalf("return_to %q ends at %s", back, last)
 		}
 	}
 
-	// a state works once
+	// a state works once, and only in the browser that started the login
 	jar, _ := cookiejar.New(nil)
 	var callback string
 	c := &http.Client{Jar: jar, CheckRedirect: func(r *http.Request, _ []*http.Request) error {
@@ -295,8 +297,15 @@ func TestOIDCLoginChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = resp.Body.Close()
+	// the attacker hands the callback link to someone else's browser
+	if resp, _ := http.Get(callback); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("callback in another browser: %d", resp.StatusCode)
+	}
 	for i, want := range []int{http.StatusFound, http.StatusBadRequest} {
 		req, _ := http.NewRequest("GET", callback, nil)
+		for _, ck := range jar.Cookies(mustURL(e.srv.URL + "/v1/auth/")) {
+			req.AddCookie(ck)
+		}
 		resp, err := http.DefaultTransport.RoundTrip(req)
 		if err != nil {
 			t.Fatal(err)
@@ -309,6 +318,22 @@ func TestOIDCLoginChecks(t *testing.T) {
 	// a made-up state
 	if resp, _ := http.Get(e.srv.URL + "/v1/auth/callback?code=x&state=nope"); resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("unknown state: %d", resp.StatusCode)
+	}
+
+	// a person named like an API token would take the token's roles
+	alice := login(t, e, p, "alice", "/")
+	if code, _ := alice.do(t, "GET", "/v1/me", nil, false); code != http.StatusUnauthorized {
+		t.Fatalf("person named like a token: %d", code)
+	}
+
+	// logout without a live session still ends the provider's session
+	jar2, _ := cookiejar.New(nil)
+	nobody := &browser{c: &http.Client{Jar: jar2}, e: e}
+	if code, out := nobody.do(t, "POST", "/v1/auth/logout", nil, true); code != http.StatusOK || out["logout_url"] == nil {
+		t.Fatalf("logout without a session: %d %v", code, out)
+	}
+	if code, _ := nobody.do(t, "POST", "/v1/auth/logout", nil, false); code != http.StatusForbidden {
+		t.Fatalf("cross-site logout: %d", code)
 	}
 }
 
@@ -350,6 +375,18 @@ func TestOIDCGroupsRefresh(t *testing.T) {
 	if n != 0 {
 		t.Fatalf("%d sessions left", n)
 	}
+
+	// the provider is down: sessions live on with their last groups, nobody is logged out
+	p.mu.Lock()
+	p.refuse = false
+	p.groups["jane.doe"] = []string{"charter-platform"}
+	p.mu.Unlock()
+	jane = login(t, e, p, "jane.doe", "/")
+	p.srv.Close()
+	stale()
+	if code, me := jane.do(t, "GET", "/v1/me", nil, false); code != http.StatusOK || me["platform"] != true {
+		t.Fatalf("provider down: %d %v", code, me)
+	}
 }
 
 func TestTriggerGroups(t *testing.T) {
@@ -389,6 +426,9 @@ func TestTriggerGroups(t *testing.T) {
 	id := obj["id"].(string)
 	if code, out := jane.do(t, "PUT", "/v1/objects/"+id+"/members", []map[string]any{{"person": "jane.doe", "role": "owner"}, {"person": "john.roe", "role": "member"}}, true); code != http.StatusOK {
 		t.Fatalf("members: %d %v", code, out)
+	}
+	if code, _ := john.do(t, "POST", "/v1/objects/"+id+"/conversations", map[string]any{}, true); code != http.StatusForbidden {
+		t.Fatalf("conversation outside the group: %d", code)
 	}
 	_, conv := jane.do(t, "POST", "/v1/objects/"+id+"/conversations", map[string]any{}, true)
 	cid := conv["conversation"].(map[string]any)["id"].(string)

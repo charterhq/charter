@@ -198,6 +198,12 @@ func (s *Server) objectEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-wake:
 		case <-tick.C:
+			// the session or the role may have ended since the stream opened
+			if !s.stillVisible(r, id) {
+				_, _ = fmt.Fprint(w, "event: end\ndata: {}\n\n")
+				_ = rc.Flush()
+				return
+			}
 			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
 				return
 			}
@@ -206,4 +212,26 @@ func (s *Server) objectEvents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// stillVisible checks again that a stream's caller may see the object: a person's session is alive
+// (and its groups fresh), and the person still has a role on the object or is the platform.
+func (s *Server) stillVisible(r *http.Request, id string) bool {
+	ctx := r.Context()
+	c := who(ctx)
+	if c.Kind == KindPerson {
+		ck, err := r.Cookie(sessionCookie)
+		if err != nil {
+			return false
+		}
+		if c, err = sessionLookup(ctx, s.Pool, s.OIDC, s.Log, ck.Value, func(time.Duration) {}); err != nil {
+			return false
+		}
+		ctx = context.WithValue(ctx, ctxKey{}, c)
+	}
+	if s.platform(ctx) {
+		return true
+	}
+	ok, err := s.Engine.HasRole(ctx, id, c.Name)
+	return err == nil && ok
 }
