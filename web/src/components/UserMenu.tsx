@@ -65,7 +65,7 @@ export function UserMenu(props: Prefs & { onPalette: () => void }) {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-30 mt-2 w-72 animate-[pop-in_.14s_ease-out] rounded-xl border bg-card p-1.5 shadow-panel"
+          className="absolute right-0 top-full z-30 mt-2 w-72 animate-[pop-in_.14s_ease-out] rounded-xl border bg-popover p-1.5 shadow-floating"
         >
           <div className="flex items-center gap-3 px-2.5 pb-2.5 pt-1.5">
             <Avatar size="lg" />
@@ -161,7 +161,7 @@ function SettingsDialog(
       onClose={onClose}
       // A click on the dimmed backdrop lands on the dialog element itself.
       onClick={(e) => e.target === e.currentTarget && onClose()}
-      className="m-auto w-[min(480px,calc(100vw-2rem))] rounded-2xl border bg-card p-0 text-foreground shadow-panel backdrop:bg-black/55 backdrop:backdrop-blur-[2px] open:animate-[pop-in_.18s_ease-out] open:backdrop:animate-[fade-in_.18s_ease-out]"
+      className="m-auto w-[min(480px,calc(100vw-2rem))] rounded-2xl border bg-popover p-0 text-foreground shadow-floating backdrop:bg-black/55 backdrop:backdrop-blur-[2px] open:animate-[pop-in_.18s_ease-out] open:backdrop:animate-[fade-in_.18s_ease-out]"
     >
       <div className="flex items-center gap-3 border-b px-5 py-4">
         <h2 id="settings-title" className="text-[16px] font-semibold tracking-tight">

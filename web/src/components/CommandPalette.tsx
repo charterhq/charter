@@ -23,7 +23,7 @@ export function CommandPalette(props: { open: boolean; onOpenChange: (o: boolean
       onOpenChange={onOpenChange}
       label="Команды"
       overlayClassName="fixed inset-0 bg-black/40 backdrop-blur-[2px]"
-      contentClassName="fixed left-1/2 top-[18%] w-[min(560px,92vw)] -translate-x-1/2 overflow-hidden rounded-xl border bg-card shadow-panel"
+      contentClassName="fixed left-1/2 top-[18%] w-[min(560px,92vw)] -translate-x-1/2 overflow-hidden rounded-xl border bg-popover shadow-floating"
     >
       <Command.Input
         placeholder="Что сделать?"

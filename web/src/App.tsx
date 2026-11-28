@@ -141,7 +141,7 @@ export default function App() {
       </div>
       <CommandPalette open={palette} onOpenChange={setPalette} actions={actions} />
       {d.notice && (
-        <div role="status" className="fixed bottom-4 left-1/2 z-30 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg border bg-card px-3 py-2 text-[14px] shadow-panel">
+        <div role="status" className="fixed bottom-4 left-1/2 z-30 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg border bg-popover px-3 py-2 text-[14px] shadow-floating">
           <span className="min-w-0">{d.notice}</span>
           <button onClick={() => draft.set({ notice: undefined })} className="shrink-0 text-[13px] text-muted-foreground hover:text-foreground">
             Понятно

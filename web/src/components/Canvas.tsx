@@ -70,7 +70,7 @@ export function Canvas() {
           className="min-h-0 overflow-y-auto px-4 py-5 sm:px-8 sm:py-6"
           style={{
             background:
-              "radial-gradient(90% 60% at 100% 0%, color-mix(in oklab, var(--primary) 9%, transparent), transparent 60%), var(--card)",
+              "radial-gradient(90% 60% at 100% 0%, color-mix(in oklab, var(--gradient-from) 45%, transparent), transparent 60%), var(--card)",
           }}
         >
           {kind === "brief" || (open.stage === 0 && open.artifact === 0 && !kind) ? (

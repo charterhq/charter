@@ -72,7 +72,7 @@ function RoomSwitcher({ rooms, current, live }: { rooms: Room[]; current: string
         <ChevronDown size={13} className="shrink-0" />
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 w-72 rounded-xl border bg-card p-1.5 shadow-panel">
+        <div className="absolute left-0 top-full z-20 mt-1 w-72 rounded-xl border bg-popover p-1.5 shadow-floating">
           <div className="px-2 pb-1.5 pt-1 text-[12px] text-faint">Беседы с билдером · память – в брифе</div>
           {rooms.map((r) => (
             <button
