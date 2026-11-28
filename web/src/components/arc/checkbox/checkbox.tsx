@@ -3,7 +3,7 @@
 import { forwardRef, useId, useState } from "react";
 import type { ComponentPropsWithoutRef, ElementRef } from "react";
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
-import { motion, useReducedMotion } from "motion/react";
+import { motion, useReducedMotionConfig } from "motion/react";
 import type { Transition } from "motion/react";
 import { motionTokens } from "../lib/motion-tokens";
 import styles from "./checkbox.module.css";
@@ -22,7 +22,7 @@ export const Checkbox = forwardRef<ElementRef<typeof CheckboxPrimitive.Root>, Ch
 ) {
   const generatedId = useId();
   const controlId = id ?? generatedId;
-  const reduced = useReducedMotion();
+  const reduced = useReducedMotionConfig();
   const [internal, setInternal] = useState<CheckboxPrimitive.CheckedState>(defaultChecked ?? false);
   const state = checked ?? internal;
   const on = state !== false;

@@ -26,6 +26,10 @@
 .highlight[data-tone="danger"] { background: color-mix(in oklab, var(--arc-danger) 8%, var(--arc-surface)); }
 .item { position: relative; display: flex; min-height: 36px; align-items: center; gap: 10px; padding: 0 11px; border-radius: calc(var(--arc-radius-panel) - 6px); color: var(--arc-foreground); font-size: var(--arc-text-sm); cursor: pointer; outline: none; transition: color var(--arc-duration-fast) var(--arc-ease-standard), opacity var(--arc-duration-standard) var(--arc-ease-enter) calc(min(var(--i, 0), 4) * 35ms), transform var(--arc-duration-standard) var(--arc-ease-enter) calc(min(var(--i, 0), 4) * 35ms); }
 .icon { display: inline-flex; width: 17px; color: var(--arc-text-secondary); }
+.header { padding: 6px 11px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--arc-border-subtle); }
+.itemLabel { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hint { flex: none; margin-left: auto; color: var(--arc-text-muted); font-size: var(--arc-text-xs); font-variant-numeric: tabular-nums; }
+.check { flex: none; color: var(--arc-accent); }
 .separator { height: 1px; margin: var(--arc-space-1) calc(var(--arc-space-1) * -1); background: var(--arc-border-subtle); }
 .destructive { color: var(--arc-danger); }
 .destructive .icon { color: var(--arc-danger); }

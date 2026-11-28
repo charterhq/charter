@@ -1,5 +1,7 @@
 import { ArrowRight, Check, CircleDashed, FileCode2, Lock, MessageSquare, Pencil } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Button } from "./arc/button/button";
+import { Textarea } from "./arc/textarea/textarea";
 import { Contract } from "./Contract";
 import { Boat } from "./Mascot";
 import { formatTime, useT } from "@/i18n";
@@ -96,13 +98,12 @@ export function Canvas() {
             </span>
           )}
         </div>
-        <button
-          disabled
-          title={t.canvas.confirmHint}
-          className="w-full shrink-0 rounded-lg bg-primary px-4 py-2 sm:w-auto text-[14px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:bg-surface disabled:text-muted-foreground disabled:shadow-[inset_0_0_0_1px_var(--border-strong)]"
-        >
-          {t.canvas.confirm}
-        </button>
+        {/* A disabled button gets no hover, so the hint sits on a wrapper. */}
+        <span title={t.canvas.confirmHint} className="w-full shrink-0 sm:w-auto">
+          <Button disabled className="w-full sm:w-auto">
+            {t.canvas.confirm}
+          </Button>
+        </span>
       </footer>
     </section>
   );
@@ -384,34 +385,26 @@ function BriefCard({ field: f, d }: { field: Field; d: Draft }) {
       </div>
       {editing ? (
         <div>
-          <textarea
+          <Textarea
             autoFocus
+            hideLabel
+            label={name}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") setEditing(false);
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save();
             }}
-            aria-label={name}
             placeholder={ask}
             rows={3}
-            className="w-full resize-y rounded-lg border bg-surface px-3 py-2 text-[15px] outline-none placeholder:text-faint focus:border-primary"
           />
           <div className="mt-2 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={save}
-              className="rounded-md bg-primary px-3 py-1 text-[13px] font-semibold text-primary-foreground hover:bg-primary-hover"
-            >
+            <Button size="sm" onClick={save}>
               {t.canvas.save}
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditing(false)}
-              className="rounded-md px-3 py-1 text-[13px] text-muted-foreground hover:bg-surface hover:text-foreground"
-            >
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
               {t.canvas.cancel}
-            </button>
+            </Button>
             <span className="ml-auto hidden text-[12px] text-faint sm:inline">{isMac ? "⌘" : "Ctrl"}+Enter · Esc</span>
           </div>
         </div>

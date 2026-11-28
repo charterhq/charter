@@ -3,7 +3,7 @@
 import { forwardRef, useId, useState } from "react";
 import type { ComponentPropsWithoutRef } from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotionConfig } from "motion/react";
 import type { Variants } from "motion/react";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { motionTokens } from "../lib/motion-tokens";
@@ -34,7 +34,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
   const generatedId = useId();
   const controlId = id ?? generatedId;
   const hintId = description ? `${controlId}-description` : undefined;
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = useReducedMotionConfig();
   const [uncontrolledValue, setUncontrolledValue] = useState(rootProps.defaultValue ?? "");
   const currentValue = rootProps.value ?? uncontrolledValue;
   const index = options.findIndex((option) => option.value === currentValue);

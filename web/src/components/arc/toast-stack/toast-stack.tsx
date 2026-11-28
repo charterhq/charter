@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { FocusEvent, KeyboardEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { AnimatePresence, animate, motion, useIsPresent, useMotionValue, usePresence, useReducedMotion, useTransform } from "motion/react";
+import { AnimatePresence, animate, motion, useIsPresent, useMotionValue, usePresence, useReducedMotionConfig, useTransform } from "motion/react";
 import type { HTMLMotionProps, MotionProps, TargetAndTransition, Transition } from "motion/react";
 import { CircleCheck, CircleX, Info, TriangleAlert, X } from "lucide-react";
 import { motionTokens } from "../lib/motion-tokens";
@@ -60,6 +60,7 @@ export interface ToastStackProps {
   /** Alt+T moves focus into the stack. */
   hotkey?: boolean;
   className?: string;
+  strings?: ToastStrings;
 }
 
 type ToastRecord = { id: string; type: ToastType; title: string; description?: string; action?: ToastAction; duration: number; seq: number; version: number };
@@ -77,7 +78,9 @@ const BORDER = 2;
 /** A swipe this far right has faded most of the way out. */
 const SWIPE_FADE = 280;
 const EMPTY: ToastRecord[] = [];
-const typeLabels: Record<ToastType, string> = { success: "Success", info: "Info", warning: "Warning", error: "Error", loading: "In progress" };
+/** Words read by screen readers; pass `strings` to translate them. */
+export interface ToastStrings { dismiss: string; types: Record<ToastType, string> }
+const defaultStrings: ToastStrings = { dismiss: "Dismiss notification", types: { success: "Success", info: "Info", warning: "Warning", error: "Error", loading: "In progress" } };
 const icons = { success: CircleCheck, info: Info, warning: TriangleAlert, error: CircleX };
 
 const standard = [...motionTokens.ease.standard] as [number, number, number, number];
@@ -201,9 +204,10 @@ interface ToastItemProps {
   onDragChange: (dragging: boolean) => void;
   onTap: () => void;
   onHandOff: (leaving: HTMLElement, keyboard: boolean) => void;
+  strings: ToastStrings;
 }
 
-function ToastItem({ toast, target, expanded, front, hidden, paused, reduce, store, onMeasure, onDragChange, onTap, onHandOff }: ToastItemProps) {
+function ToastItem({ strings, toast, target, expanded, front, hidden, paused, reduce, store, onMeasure, onDragChange, onTap, onHandOff }: ToastItemProps) {
   const { id } = toast;
   const [isPresent, safeToRemove] = usePresence();
   const itemRef = useRef<HTMLLIElement>(null);
@@ -373,7 +377,7 @@ function ToastItem({ toast, target, expanded, front, hidden, paused, reduce, sto
           </AnimatePresence>
         </span>
         <div className={styles.copy}>
-          <span className={styles.srOnly}>{typeLabels[toast.type]}: </span>
+          <span className={styles.srOnly}>{strings.types[toast.type]}: </span>
           <span className={styles.title}><AnimatePresence mode="popLayout" initial={false}><Swap key={toast.title} className={styles.line} {...swap}>{toast.title}</Swap></AnimatePresence></span>
           <AnimatePresence mode="popLayout" initial={false}>{toast.description ? <Swap key={toast.description} className={styles.description} {...swap}>{toast.description}</Swap> : null}</AnimatePresence>
         </div>
@@ -383,7 +387,7 @@ function ToastItem({ toast, target, expanded, front, hidden, paused, reduce, sto
             <button type="button" className={styles.action} onClick={runAction}>{toast.action.label}</button>
           </motion.div> : null}
         </AnimatePresence>
-        <button ref={closeRef} type="button" className={styles.close} aria-label="Dismiss notification" onClick={() => store.dismiss(id)}>
+        <button ref={closeRef} type="button" className={styles.close} aria-label={strings.dismiss} onClick={() => store.dismiss(id)}>
           <X width={16} height={16} strokeWidth={1.75} aria-hidden="true" />
         </button>
       </motion.div>
@@ -391,10 +395,10 @@ function ToastItem({ toast, target, expanded, front, hidden, paused, reduce, sto
   </motion.li>;
 }
 
-export function ToastStack({ label = "Notifications", position = "bottom-right", contained = false, visibleToasts = 3, hotkey = true, className }: ToastStackProps) {
+export function ToastStack({ label = "Notifications", position = "bottom-right", contained = false, visibleToasts = 3, hotkey = true, className, strings = defaultStrings }: ToastStackProps) {
   const store = useStore();
   const toasts = useSyncExternalStore(store.subscribe, store.getSnapshot, getServerSnapshot);
-  const reduce = !!useReducedMotion();
+  const reduce = !!useReducedMotionConfig();
   const pageHidden = useSyncExternalStore(subscribeVisibility, () => document.visibilityState === "hidden", () => false);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -462,7 +466,7 @@ export function ToastStack({ label = "Notifications", position = "bottom-right",
   return <section ref={regionRef} className={[styles.viewport, styles[position], contained && styles.contained, className].filter(Boolean).join(" ")} aria-label={hotkey ? `${label} (Alt+T)` : label} aria-live="polite" aria-relevant="additions text" aria-atomic="false" onFocus={onFocus} onBlur={onBlur}>
     <ol ref={listRef} className={styles.list} style={{ height: listHeight }} data-expanded={expanded} onPointerEnter={event => { if (event.pointerType === "mouse") setHovered(true); }} onPointerMove={event => { if (event.pointerType === "mouse" && !hovered) setHovered(true); }} onPointerLeave={event => { if (event.pointerType === "mouse") setHovered(false); }}>
       <AnimatePresence onExitComplete={prune}>
-        {toasts.map((item, index) => <ToastItem key={item.id} toast={item} target={targets[index]!} expanded={expanded} front={index === 0} hidden={index >= visibleToasts} paused={paused} reduce={reduce} store={store} onMeasure={measure} onDragChange={setDragging} onTap={toggleTap} onHandOff={handOff} />)}
+        {toasts.map((item, index) => <ToastItem strings={strings} key={item.id} toast={item} target={targets[index]!} expanded={expanded} front={index === 0} hidden={index >= visibleToasts} paused={paused} reduce={reduce} store={store} onMeasure={measure} onDragChange={setDragging} onTap={toggleTap} onHandOff={handOff} />)}
       </AnimatePresence>
     </ol>
   </section>;

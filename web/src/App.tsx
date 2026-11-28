@@ -1,4 +1,8 @@
+import { MotionConfig } from "motion/react";
 import { useEffect, useState } from "react";
+import { Button } from "./components/arc/button/button";
+import { Input } from "./components/arc/input/input";
+import { ToastStack, ToastStackProvider, useToastStack } from "./components/arc/toast-stack/toast-stack";
 import { Canvas } from "./components/Canvas";
 import { Chat } from "./components/Chat";
 import { CommandPalette, type Action } from "./components/CommandPalette";
@@ -86,7 +90,9 @@ export default function App() {
   ];
 
   return (
-    <>
+    // "Reduce motion" in the profile settings reaches the Arc components through MotionConfig.
+    <MotionConfig reducedMotion={reduceMotion ? "always" : "user"}>
+      <ToastStackProvider>
       <div className="flex h-full flex-col">
         <TopBar
           view={view}
@@ -137,16 +143,23 @@ export default function App() {
         )}
       </div>
       <CommandPalette open={palette} onOpenChange={setPalette} actions={actions} />
-      {d.notice && (
-        <div role="status" className="fixed bottom-4 left-1/2 z-30 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg border bg-popover px-3 py-2 text-[14px] shadow-floating">
-          <span className="min-w-0">{d.notice}</span>
-          <button onClick={() => draft.set({ notice: undefined })} className="shrink-0 text-[13px] text-muted-foreground hover:text-foreground">
-            {t.app.gotIt}
-          </button>
-        </div>
-      )}
-    </>
+      <Notices />
+      </ToastStackProvider>
+    </MotionConfig>
   );
+}
+
+// A notice of the store (a conflict, a failed answer) becomes a toast and leaves the store at once.
+function Notices() {
+  const t = useT();
+  const notice = useDraft().notice;
+  const { toast } = useToastStack();
+  useEffect(() => {
+    if (!notice) return;
+    toast({ type: "warning", title: notice });
+    draft.set({ notice: undefined });
+  }, [notice, toast]);
+  return <ToastStack position="bottom-center" label={t.app.notices} strings={{ dismiss: t.app.dismiss, types: t.app.toastTypes }} />;
 }
 
 // Gate is the screen before the draft: loading, the login, or a core that did not answer.
@@ -175,9 +188,9 @@ function Gate() {
         <Boat size={36} />
         <h1 className="mt-3 text-lg font-semibold">{t.app.coreDown}</h1>
         <p className="mt-1 text-[14px] text-faint [overflow-wrap:anywhere]">{d.error}</p>
-        <button className="mt-4 w-full rounded-lg bg-primary px-4 py-2 text-[14px] font-semibold text-primary-foreground hover:bg-primary-hover">
+        <Button type="submit" className="mt-4 w-full">
           {t.app.retry}
-        </button>
+        </Button>
       </form>
     </main>
   );
@@ -207,19 +220,15 @@ function Login({ error }: { error?: string }) {
         {cfg?.oidc && (
           <>
             <p className="mt-1 text-[14px] text-faint">{t.login.sso}</p>
-            <button
-              autoFocus
-              onClick={login}
-              className="mt-4 w-full rounded-lg bg-primary px-4 py-2 text-[14px] font-semibold text-primary-foreground hover:bg-primary-hover"
-            >
+            <Button autoFocus onClick={login} className="mt-4 w-full">
               {t.login.signIn}
-            </button>
+            </Button>
           </>
         )}
         {cfg?.oidc && cfg.token && !tokenOpen && (
-          <button onClick={() => setTokenOpen(true)} className="mt-3 w-full text-[13px] text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" onClick={() => setTokenOpen(true)} className="mt-2 w-full">
             {t.login.withToken}
-          </button>
+          </Button>
         )}
         {showToken && (
           <form
@@ -235,23 +244,23 @@ function Login({ error }: { error?: string }) {
                 .catch((err) => setFailed(err instanceof ApiError && err.status === 403 ? t.login.notPlatform : t.login.badToken));
             }}
           >
-            <p className="text-[14px] text-faint">{t.login.tokenHint}</p>
-            <input
+            <Input
               autoFocus
               type="password"
               value={token}
-              onChange={(e) => setToken(e.target.value)}
-              aria-label={t.login.tokenLabel}
+              onChange={(e) => {
+                setToken(e.target.value);
+                setFailed(undefined);
+              }}
+              label={t.login.tokenLabel}
+              description={t.login.tokenHint}
+              error={failed}
               placeholder={t.login.tokenPlaceholder}
-              className="mt-3 w-full rounded-lg border bg-surface px-3 py-2 text-[15px] outline-none focus:border-primary"
+              autoComplete="off"
             />
-            {failed && <p className="mt-2 text-[13px] text-destructive">{failed}</p>}
-            <button
-              disabled={!token.trim()}
-              className="mt-3 w-full rounded-lg border px-4 py-2 text-[14px] font-semibold hover:bg-surface disabled:opacity-50"
-            >
+            <Button type="submit" variant="secondary" disabled={!token.trim()} className="mt-3 w-full">
               {t.login.tokenSubmit}
-            </button>
+            </Button>
           </form>
         )}
       </div>

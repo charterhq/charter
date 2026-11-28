@@ -2,7 +2,7 @@
 
 import { forwardRef, isValidElement, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import type { ButtonHTMLAttributes, ReactNode, Ref, RefObject } from "react";
-import { AnimatePresence, animate, motion, useIsPresent, useMotionValue, useReducedMotion } from "motion/react";
+import { AnimatePresence, animate, motion, useIsPresent, useMotionValue, useReducedMotionConfig } from "motion/react";
 import type { TargetAndTransition, Variants } from "motion/react";
 import { motionTokens } from "../lib/motion-tokens";
 import styles from "./button.module.css";
@@ -81,7 +81,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   { className, variant = "primary", size = "md", loading = false, disabled, children, onClick, ...props },
   ref,
 ) {
-  const reduceMotion = useReducedMotion() ?? false;
+  const reduceMotion = useReducedMotionConfig() ?? false;
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const contentRef = useRef<HTMLSpanElement>(null);
   const key = labelKey(children);

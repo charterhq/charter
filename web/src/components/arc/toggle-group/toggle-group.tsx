@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, KeyboardEvent, ReactNode } from "react";
-import { LayoutGroup, motion, useReducedMotion } from "motion/react";
+import { LayoutGroup, motion, useReducedMotionConfig } from "motion/react";
 import { motionTokens } from "../lib/motion-tokens";
 import styles from "./toggle-group.module.css";
 
@@ -65,7 +65,7 @@ export function ToggleGroup(props: ToggleGroupProps) {
   const { children, label, size = "md", disabled = false, className } = props;
   const type = props.type ?? "single";
   const id = useId();
-  const reduced = useReducedMotion() ?? false;
+  const reduced = useReducedMotionConfig() ?? false;
   const root = useRef<HTMLDivElement>(null);
 
   const [inner, setInner] = useState<readonly string[]>(() => {

@@ -4,7 +4,7 @@ import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { createContext, useCallback, useContext, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ComponentPropsWithoutRef, RefObject } from "react";
 import { ChevronLeft as NavArrowLeft, ChevronRight as NavArrowRight } from "lucide-react";
-import { AnimatePresence, LayoutGroup, animate, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, LayoutGroup, animate, motion, useReducedMotionConfig } from "motion/react";
 import type { AnimationPlaybackControls, Variants } from "motion/react";
 import { motionTokens } from "../lib/motion-tokens";
 import styles from "./tabs.module.css";
@@ -34,7 +34,7 @@ export function Tabs({ value, defaultValue, onValueChange, className, ...props }
 
 export function TabsList({ className, ...props }: ComponentPropsWithoutRef<typeof TabsPrimitive.List>) {
   const { active } = useContext(TabsContext);
-  const reduced = useReducedMotion();
+  const reduced = useReducedMotionConfig();
   const shell = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -84,7 +84,7 @@ export function TabsList({ className, ...props }: ComponentPropsWithoutRef<typeo
 
 export function TabsTrigger({ className, children, value, ...props }: ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger>) {
   const { active } = useContext(TabsContext);
-  const reduced = useReducedMotion();
+  const reduced = useReducedMotionConfig();
   // The LayoutGroup in Tabs scopes the highlight to this instance, so it glides between triggers but never flies in from another tab set.
   return <TabsPrimitive.Trigger {...props} value={value} data-value={value} className={[styles.trigger, className].filter(Boolean).join(" ")}>
     {active === value && <motion.span className={styles.selection} layoutId="selection" layoutDependency={active} transition={reduced ? { duration: 0 } : motionTokens.spring.morph} aria-hidden="true"/>}
@@ -106,7 +106,7 @@ const panelFade: Variants = {
 
 export function TabsContent({ className, value, forceMount, children, ...props }: ComponentPropsWithoutRef<typeof TabsPrimitive.Content>) {
   const { active, direction, panelHeightRef, leavingRectRef } = useContext(TabsContext);
-  const reduced = useReducedMotion();
+  const reduced = useReducedMotionConfig();
   const panel = useRef<HTMLDivElement>(null);
   const selected = active === value;
   const classes = [styles.content, className].filter(Boolean).join(" ");

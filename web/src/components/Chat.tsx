@@ -8,8 +8,9 @@ import {
   useExternalStoreRuntime,
   type ThreadMessageLike,
 } from "@assistant-ui/react";
-import { ArrowRight, ArrowUp, Check, ChevronDown, Mic, Plus, Square } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight, ArrowUp, ChevronDown, Mic, Plus, Square } from "lucide-react";
+import { useMemo } from "react";
+import { DropdownMenu } from "./arc/dropdown-menu/dropdown-menu";
 import { Boat } from "./Mascot";
 import { locale, useT, type Messages } from "@/i18n";
 import type { Message } from "@/lib/api";
@@ -42,61 +43,37 @@ export function Chat() {
 // Rooms keep the chat short; the brief carries what was decided, so switching loses nothing.
 function RoomSwitcher({ rooms, current, live }: { rooms: Room[]; current: string; live: boolean }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const close = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", esc);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", esc);
-    };
-  }, []);
   const room = rooms.find((r) => r.id === current);
-
   return (
-    <div ref={ref} className="relative min-w-0">
-      <button
-        onClick={() => setOpen(!open)}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        className="flex max-w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-[13px] font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
-      >
-        <span
-          title={live ? t.chat.live : t.chat.offline}
-          className={cn(
-            "size-[7px] shrink-0 rounded-full",
-            live ? "bg-success shadow-[0_0_0_3px_color-mix(in_oklab,var(--success)_20%,transparent)]" : "bg-border-strong",
-          )}
-        />
-        <span className="min-w-0 truncate">{roomTitle(t, room, rooms)}</span>
-        <ChevronDown size={13} className="shrink-0" />
-      </button>
-      {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 w-72 rounded-xl border bg-popover p-1.5 shadow-floating">
-          <div className="px-2 pb-1.5 pt-1 text-[12px] text-faint">{t.chat.rooms}</div>
-          {rooms.map((r) => (
-            <button
-              key={r.id}
-              onClick={() => {
-                void selectRoom(r.id);
-                setOpen(false);
-              }}
-              className={cn(
-                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[14px] text-muted-foreground hover:bg-surface hover:text-foreground",
-                r.id === current && "bg-surface text-foreground",
-              )}
-            >
-              <span className="min-w-0 flex-1 truncate">{roomTitle(t, r, rooms)}</span>
-              {r.loaded && <span className="text-[12px] text-faint">{r.messages.length}</span>}
-              {r.id === current && <Check size={13} className="text-primary" />}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <DropdownMenu
+      label={t.chat.rooms}
+      align="start"
+      width="18rem"
+      header={<span className="text-[12px] text-faint">{t.chat.rooms}</span>}
+      items={rooms.map((r) => ({
+        key: r.id,
+        label: roomTitle(t, r, rooms),
+        hint: r.loaded ? r.messages.length : undefined,
+        checked: r.id === current,
+        onSelect: () => void selectRoom(r.id),
+      }))}
+      trigger={
+        <button
+          type="button"
+          className="flex max-w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-[13px] font-medium text-muted-foreground hover:bg-surface hover:text-foreground data-[state=open]:bg-surface data-[state=open]:text-foreground"
+        >
+          <span
+            title={live ? t.chat.live : t.chat.offline}
+            className={cn(
+              "size-[7px] shrink-0 rounded-full",
+              live ? "bg-success shadow-[0_0_0_3px_color-mix(in_oklab,var(--success)_20%,transparent)]" : "bg-border-strong",
+            )}
+          />
+          <span className="min-w-0 truncate">{roomTitle(t, room, rooms)}</span>
+          <ChevronDown size={13} className="shrink-0" />
+        </button>
+      }
+    />
   );
 }
 

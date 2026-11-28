@@ -3,7 +3,7 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
 import type { ComponentPropsWithoutRef, ElementRef } from "react";
 import * as SwitchPrimitive from "@radix-ui/react-switch";
-import { animate, motion, useMotionValue, useReducedMotion } from "motion/react";
+import { animate, motion, useMotionValue, useReducedMotionConfig } from "motion/react";
 import type { Transition } from "motion/react";
 import { motionTokens } from "../lib/motion-tokens";
 import styles from "./switch.module.css";
@@ -24,7 +24,7 @@ export const Switch = forwardRef<ElementRef<typeof SwitchPrimitive.Root>, Switch
   { label, className, checked, defaultChecked, onCheckedChange, onPointerDown, onPointerUp, onPointerLeave, onPointerCancel, onKeyDown, onKeyUp, onBlur, ...props },
   ref,
 ) {
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = useReducedMotionConfig();
   const [internal, setInternal] = useState(defaultChecked ?? false);
   const [pressed, setPressed] = useState(false);
   const on = checked ?? internal;

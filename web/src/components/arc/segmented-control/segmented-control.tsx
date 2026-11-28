@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useLayoutEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
-import { LayoutGroup, motion, useReducedMotion } from "motion/react";
+import { LayoutGroup, motion, useReducedMotionConfig } from "motion/react";
 import { motionTokens } from "../lib/motion-tokens";
 import styles from "./segmented-control.module.css";
 
@@ -20,7 +20,7 @@ export interface SegmentedControlProps {
 
 export default function SegmentedControl({ options, value, onValueChange, label, onOptionIntent, fullWidth, className }: SegmentedControlProps) {
   const id = useId();
-  const reduced = useReducedMotion();
+  const reduced = useReducedMotionConfig();
   const track = useRef<HTMLDivElement>(null);
 
   // When the options are wider than the container, the track scrolls inside itself. Edges fade only on the side with more to see.

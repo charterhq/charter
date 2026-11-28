@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactElement, ReactNode } from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotionConfig } from "motion/react";
 import { motionTokens } from "../lib/motion-tokens";
 import styles from "./tooltip.module.css";
 
@@ -31,7 +31,7 @@ const warmth = {
 
 /** String content crossfades when it changes while open, and the bubble springs to the new text size. */
 function TooltipText({ text }: { text: string }) {
-  const reduced = useReducedMotion();
+  const reduced = useReducedMotionConfig();
   const measure = useRef<HTMLSpanElement>(null);
   const measured = useRef<string | null>(null);
   const [size, setSize] = useState<{ width: number; height: number; animate: boolean } | null>(null);

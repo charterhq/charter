@@ -2,12 +2,14 @@
 
 import { forwardRef, useEffect, useId, useRef, useState } from "react";
 import type { InputHTMLAttributes } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotionConfig } from "motion/react";
 import { motionTokens } from "../lib/motion-tokens";
 import styles from "./input.module.css";
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
+  /** Keeps the label for screen readers only, when the surroundings already name the field. */
+  hideLabel?: boolean;
   description?: string;
   error?: string;
 }
@@ -22,7 +24,7 @@ const isNumber = (word: string) => /^\d[\d.,/:]*%?$/.test(word);
 
 /** A count in the copy, such as "12 characters", rolls only the digits that changed; a gained or lost digit opens or closes its width. */
 function RollingNumber({ word }: { word: string }) {
-  const reduced = useReducedMotion();
+  const reduced = useReducedMotionConfig();
   const [shown, setShown] = useState({ word, direction: 1 });
   if (shown.word !== word) setShown({ word, direction: parseFloat(word.replace(/,/g, "")) < parseFloat(shown.word.replace(/,/g, "")) ? -1 : 1 });
   const characters = word.split("");
@@ -34,7 +36,7 @@ function RollingNumber({ word }: { word: string }) {
 
 /** Changed words rise in and unblur while unchanged words hold still, and numbers roll. Assistive tech reads the plain copy. */
 function MotionText({ text }: { text: string }) {
-  const reduced = useReducedMotion();
+  const reduced = useReducedMotionConfig();
   const words = text.split(" ");
   return <><span className={styles.srOnly}>{text}</span><span className={styles.words} aria-hidden="true"><AnimatePresence initial={false} mode="popLayout">{words.map((word, index) => <motion.span key={`${index}:${isNumber(word) ? "#" : word}`} className={styles.word}
     initial={reduced ? { opacity: 0 } : { opacity: 0, y: "0.35em", filter: `blur(${motionTokens.blur.soft}px)` }} animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
@@ -49,7 +51,7 @@ function FieldMessage({ id, text, className, alert }: { id?: string; text?: stri
 
 /** The row tracks the measured copy, so a longer message that wraps opens its next line instead of snapping. */
 function MessageRow({ id, text, className, alert }: { id?: string; text: string; className?: string; alert?: boolean }) {
-  const reduced = useReducedMotion();
+  const reduced = useReducedMotionConfig();
   const copyRef = useRef<HTMLSpanElement>(null);
   const [height, setHeight] = useState<number | "auto">("auto");
   useEffect(() => {
@@ -67,7 +69,7 @@ function MessageRow({ id, text, className, alert }: { id?: string; text: string;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, description, error, id, className, ...props }, ref,
+  { label, hideLabel, description, error, id, className, ...props }, ref,
 ) {
   const generatedId = useId();
   const controlId = id ?? generatedId;
@@ -75,7 +77,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   const errorId = error ? `${controlId}-error` : undefined;
   const describedBy = [props["aria-describedby"], hintId, errorId].filter(Boolean).join(" ") || undefined;
   return <div className={styles.field}>
-    <label className={styles.label} htmlFor={controlId}>{label}</label>
+    <label className={hideLabel ? styles.srOnly : styles.label} htmlFor={controlId}>{label}</label>
     <input {...props} id={controlId} ref={ref} className={[styles.input, className].filter(Boolean).join(" ")} aria-invalid={error ? true : props["aria-invalid"]} aria-describedby={describedBy}/>
     <FieldMessage id={hintId} text={description} className={styles.description} />
     <FieldMessage id={errorId} text={error} className={styles.error} alert />
