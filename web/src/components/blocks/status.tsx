@@ -17,9 +17,9 @@ export function Spinner({ size = 14, className }: { size?: number; className?: s
 }
 
 // A check whose stroke draws itself when it comes in after another state.
-function Check({ size, draw }: { size: number; draw: boolean }) {
+function Check({ size, draw, className = "text-success" }: { size: number; draw: boolean; className?: string }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="text-success">
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className={className}>
       <path d="M3.25 8.5 6.5 11.75 12.75 4.75" pathLength={1} strokeDasharray={1} className={cn(draw && "animate-[draw_.2s_cubic-bezier(.22,1,.36,1)_40ms_backwards]")} />
     </svg>
   );
@@ -27,7 +27,8 @@ function Check({ size, draw }: { size: number; draw: boolean }) {
 
 // StatusIcon shows a step state with a mark and names it for screen readers. A state that changes
 // pops in: the new mark grows from 60% and fades in, a check draws itself. The first state just shows.
-export function StatusIcon({ status, size = 14 }: { status: StepStatus; size?: number }) {
+// The disc look is for checklists: a done step is a filled disc with a check, a step ahead an empty ring.
+export function StatusIcon({ status, size = 14, disc }: { status: StepStatus; size?: number; disc?: boolean }) {
   const t = useT();
   const moved = useRef(false);
   const initial = useRef(status).current;
@@ -39,12 +40,21 @@ export function StatusIcon({ status, size = 14 }: { status: StepStatus; size?: n
       <span key={status} className={cn("inline-grid place-items-center", changed && "animate-[status-in_.2s_cubic-bezier(.16,1,.3,1)]")}>
         {status === "running" ? (
           <Spinner size={size} />
+        ) : status === "done" && disc ? (
+          <span className="grid place-items-center rounded-full bg-success text-background" style={{ width: size, height: size }}>
+            <Check size={size - 4} draw={changed} className="" />
+          </span>
         ) : status === "done" ? (
           <Check size={size} draw={changed} />
         ) : status === "error" ? (
           <CircleAlert size={size} strokeWidth={2} className="text-destructive" aria-hidden />
         ) : status === "waiting" ? (
           <Hand size={size} strokeWidth={2} className="text-warning" aria-hidden />
+        ) : disc ? (
+          <span
+            className={cn("rounded-full border-[1.5px] border-border-strong", status === "skipped" && "border-dashed opacity-60")}
+            style={{ width: size - 2, height: size - 2 }}
+          />
         ) : (
           <Circle size={size - 2} strokeWidth={1.75} className={cn("text-border-strong", status === "skipped" && "opacity-50")} aria-hidden />
         )}

@@ -66,8 +66,28 @@ export function KitBlocks({ Section }: { Section: (p: { title: string; children:
     { id: "d", title: "Предложить дежурному первый шаг", status: "todo" },
   ]);
   const [approved, setApproved] = useState(false);
-  const [planAt, replayPlan] = usePlay(plan.length, 900);
-  const live: PlanStep[] = plan.map((s, i) => ({ ...s, status: i < planAt ? "done" : i === planAt ? "running" : "todo" }));
+  const [planPaused, setPlanPaused] = useState(false);
+  const [planAt, replayPlan] = usePlay(plan.length, planPaused ? 1e9 : 1400);
+  const live: PlanStep[] = plan.map((s, i) => ({
+    ...s,
+    status: i < planAt ? "done" : i === planAt ? "running" : "todo",
+    meta: i < planAt ? `${(i * 7 + 12) % 40}s` : undefined,
+    note: i === 2 ? (
+      <>
+        <Boat size={12} /> Добавил агент
+      </>
+    ) : undefined,
+    activity: (
+      <>
+        <div className="flex items-center gap-1.5">
+          <FileText size={12} aria-hidden /> Прочитал правила алерта
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Search size={12} aria-hidden /> Ищет похожие инциденты
+        </div>
+      </>
+    ),
+  }));
 
   const [qAt, replayResearch] = usePlay(QUERIES.length + 1, 1000);
   const researching = qAt <= QUERIES.length;
@@ -165,7 +185,7 @@ export function KitBlocks({ Section }: { Section: (p: { title: string; children:
               }}
             />
           ) : (
-            <AgentPlan goal="Разбирать алерты Grafana и подсказывать дежурному" steps={live} />
+            <AgentPlan goal="Разбирать алерты Grafana и подсказывать дежурному" steps={live} paused={planPaused} onPause={() => setPlanPaused(true)} onResume={() => setPlanPaused(false)} />
           )}
           {approved && (
             <Button size="sm" variant="ghost" onClick={() => setApproved(false)}>
