@@ -149,6 +149,7 @@ export const en = {
     steps: (n: number) => `${n} ${n === 1 ? "step" : "steps"}`,
     stepsDone: (done: number, total: number) => `${done} of ${total} done`,
     planProgress: "Plan progress",
+    stepActivity: "What the step is doing",
     ofTotal: (done: number, total: number) => `${done} of ${total}`,
     workingOnStep: (n: number) => `Working on step ${n}`,
     planPaused: "Paused",

@@ -1,7 +1,7 @@
-import { Brain, FileText, Globe, GitBranch, MessageSquare, Search, Sparkles } from "lucide-react";
+import { Brain, FilePen, FilePlus, FileText, Globe, GitBranch, MessageSquare, Play, Search, Sparkles } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "./arc/button/button";
-import { AgentPlan, type PlanStep } from "./blocks/AgentPlan";
+import { AgentPlan, type PlanActivity, type PlanStep } from "./blocks/AgentPlan";
 import { AgentRun, RunOutput, type RunState, type RunStep } from "./blocks/AgentRun";
 import { AiAnswer, AnswerCode, AnswerTable, Claim, Cite, type AnswerSource, type Feedback } from "./blocks/AiAnswer";
 import { AiComposer, ToolToggle } from "./blocks/AiComposer";
@@ -47,6 +47,28 @@ const RUN: Omit<RunStep, "status">[] = [
 ];
 
 // play walks a list of steps once on a button press; nothing runs on its own.
+// What each plan step does, line by line, as the demo runs it.
+const PLAN_ACTIVITY: PlanActivity[][] = [
+  [
+    { icon: <Search size={12} />, text: "Нашел канал #alerts" },
+    { icon: <FilePen size={12} />, text: "Подписался на канал" },
+  ],
+  [
+    { icon: <Search size={12} />, text: "Искал панели по api-gateway" },
+    { icon: <FileText size={12} />, text: "Прочитал правило алерта" },
+    { icon: <Globe size={12} />, text: "Нашел панель api-gateway / 5xx" },
+  ],
+  [
+    { icon: <FileText size={12} />, text: "Прочитал логи за 15 минут" },
+    { icon: <Search size={12} />, text: "Искал похожие инциденты" },
+    { icon: <Play size={12} />, text: "Сверил с runbook" },
+  ],
+  [
+    { icon: <FilePlus size={12} />, text: "Написал черновик ответа" },
+    { icon: <MessageSquare size={12} />, text: "Отправил дежурному" },
+  ],
+];
+
 function usePlay(count: number, ms: number) {
   const [at, setAt] = useState(count);
   useEffect(() => {
@@ -142,7 +164,15 @@ export function KitBlocks({ Section }: { Section: (p: { title: string; children:
   ]);
   const [approved, setApproved] = useState(false);
   const [planPaused, setPlanPaused] = useState(false);
-  const [planAt, replayPlan] = usePlay(plan.length, planPaused ? 1e9 : 1400);
+  const [planAt, replayPlan] = usePlay(plan.length, planPaused ? 1e9 : 2200);
+  // Lines of the running step come one by one: the first a bit sooner, like a tool call that starts.
+  const [lines, setLines] = useState({ step: planAt, n: 0 });
+  const lineAt = lines.step === planAt ? lines.n : 0;
+  useEffect(() => {
+    if (planPaused || lineAt >= (PLAN_ACTIVITY[planAt % PLAN_ACTIVITY.length]?.length ?? 0)) return;
+    const id = window.setTimeout(() => setLines({ step: planAt, n: lineAt + 1 }), lineAt === 0 ? 360 : 540);
+    return () => window.clearTimeout(id);
+  }, [lineAt, planAt, planPaused]);
   const live: PlanStep[] = plan.map((s, i) => ({
     ...s,
     status: i < planAt ? "done" : i === planAt ? "running" : "todo",
@@ -153,16 +183,7 @@ export function KitBlocks({ Section }: { Section: (p: { title: string; children:
           <Boat size={12} /> Добавил агент
         </>
       ) : undefined,
-    activity: (
-      <>
-        <div className="flex items-center gap-1.5">
-          <FileText size={12} aria-hidden /> Прочитал правила алерта
-        </div>
-        <div className="flex items-center gap-1.5">
-          <Search size={12} aria-hidden /> Ищет похожие инциденты
-        </div>
-      </>
-    ),
+    activity: i <= planAt ? PLAN_ACTIVITY[i % PLAN_ACTIVITY.length].slice(0, i === planAt ? lineAt : undefined) : undefined,
   }));
 
   const [qAt, replayResearch] = usePlay(QUERIES.length + 1, 1000);

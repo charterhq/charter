@@ -148,6 +148,7 @@ export const ru: Messages = {
     steps: (n) => `шагов: ${n}`,
     stepsDone: (done, total) => `${done} из ${total} готово`,
     planProgress: "Ход плана",
+    stepActivity: "Что делает шаг",
     ofTotal: (done, total) => `${done} из ${total}`,
     workingOnStep: (n) => `Делаю шаг ${n}`,
     planPaused: "На паузе",

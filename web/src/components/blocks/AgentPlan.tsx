@@ -3,6 +3,7 @@ import { m, useDragControls, useMotionValue } from "motion/react";
 import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Button } from "../arc/button/button";
 import { Collapse } from "./Collapse";
+import { Shimmer } from "./Shimmer";
 import { StatusIcon, type StepStatus } from "./status";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -19,9 +20,11 @@ export type PlanStep = {
   meta?: ReactNode;
   // A line under the title: "Added by agent".
   note?: ReactNode;
-  // What the step is doing right now; shows under it while it runs.
-  activity?: ReactNode;
+  // What the step is doing right now, one line per action as it happens; shows under it while it runs.
+  activity?: PlanActivity[];
 };
+
+export type PlanActivity = { id?: string; icon?: ReactNode; text: ReactNode };
 
 export type AgentPlanProps = {
   goal: ReactNode;
@@ -112,7 +115,7 @@ export function AgentPlan({ goal, author, steps, draft, onChange, onApprove, onK
                 onRemove={() => onChange!(steps.filter((x) => x.id !== s.id))}
               />
             ))
-          : steps.map((s, i) => <LiveRow key={s.id} step={s} index={i} draft={draft} />)}
+          : steps.map((s, i) => <LiveRow key={s.id} step={s} index={i} draft={draft} paused={paused} />)}
         {editable && (
           <li className="flex min-h-9 items-center gap-2 px-1 text-[14px]">
             <Plus size={15} aria-hidden className="mx-1.5 shrink-0 text-faint" />
@@ -164,7 +167,8 @@ export function AgentPlan({ goal, author, steps, draft, onChange, onApprove, onK
   );
 }
 
-function LiveRow({ step: s, index, draft }: { step: PlanStep; index: number; draft?: boolean }) {
+function LiveRow({ step: s, index, draft, paused }: { step: PlanStep; index: number; draft?: boolean; paused?: boolean }) {
+  const t = useT();
   return (
     <li className="px-2 py-1.5 text-[14px]">
       <div className="flex items-start gap-3 leading-5">
@@ -180,17 +184,35 @@ function LiveRow({ step: s, index, draft }: { step: PlanStep; index: number; dra
         <span
           className={cn(
             "min-w-0 flex-1 transition-colors duration-200",
-            s.status === "running" ? "text-muted-foreground" : s.status === "done" ? "text-foreground/85" : s.status === "skipped" ? "text-faint line-through" : "text-foreground",
+            s.status === "running"
+              ? "text-muted-foreground"
+              : s.status === "done"
+                ? "text-foreground/85"
+                : s.status === "skipped"
+                  ? "text-faint line-through"
+                  : "text-foreground",
           )}
         >
-          {s.title}
+          <Shimmer active={s.status === "running" && !paused}>{s.title}</Shimmer>
         </span>
         {s.meta && <span className="shrink-0 text-[12px] leading-5 tabular-nums text-faint">{s.meta}</span>}
       </div>
       {s.note && <div className="mt-0.5 flex items-center gap-1.5 pl-7 text-[12px] text-faint">{s.note}</div>}
-      {s.activity != null && (
-        <Collapse open={s.status === "running"}>
-          <div className="space-y-0.5 pb-0.5 pl-7 pt-1 text-[12px] text-muted-foreground">{s.activity}</div>
+      {s.activity && (
+        <Collapse open={s.status === "running" && s.activity.length > 0}>
+          {/* Lines come one by one: Collapse grows the row on a spring, each line fades in. */}
+          <ul aria-label={t.blocks.stepActivity} className="space-y-1 pb-0.5 pl-7 pt-1.5 text-[13px] text-muted-foreground">
+            {s.activity.map((a, i) => (
+              <li key={a.id ?? i} className="flex animate-[fade-in_.15s_cubic-bezier(.16,1,.3,1)] items-center gap-2 leading-5">
+                {a.icon && (
+                  <span aria-hidden className="grid size-3.5 shrink-0 place-items-center text-faint">
+                    {a.icon}
+                  </span>
+                )}
+                <span className="min-w-0 truncate">{a.text}</span>
+              </li>
+            ))}
+          </ul>
         </Collapse>
       )}
     </li>
